@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>窄路</title>
+<style>
+  :root {
+    --bg: #12150f;
+    --panel: #1c2218;
+    --panel-2: #252c20;
+    --line: #3a4533;
+    --text: #e8eedf;
+    --muted: #9aa68c;
+    --gold: #e6c35c;
+    --life: #e07070;
+    --accent: #7cb36a;
+    --path: #a4845a;
+    --grass-a: #3f5c38;
+    --grass-b: #375232;
+    --danger: #c45c4a;
+    --ice: #6ec7e0;
+    --cannon: #8a8680;
+    --arrow: #d8c49a;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%;
+    background: #070806;
+    color: var(--text);
+    font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Heiti SC", sans-serif;
+    user-select: none;
+    overflow: hidden;
+  }
+  body { display: flex; justify-content: center; align-items: stretch; }
+  #app {
+    width: 100%;
+    max-width: 430px;
+    height: 100%;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(180deg, #161b12 0%, #12150f 100%);
+    border-left: 1px solid #000;
+    border-right: 1px solid #000;
+    position: relative;
+    overflow: hidden;
+  }
+  header {
+    flex: 0 0 auto;
+    padding: 8px 12px 6px;
+    padding-top: max(8px, env(safe-area-inset-top));
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  .title-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  h1 {
+    margin: 0;
+    font-size: 18px;
+    letter-spacing: 0.18em;
+    font-weight: 700;
+    color: #f2f6ea;
+  }
+  .hint {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+  .hud {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1.15fr;
+    gap: 6px;
+  }
+  .stat {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 8px;
+    min-height: 44px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .stat .k {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+  }
+  .stat .v {
+    font-size: 16px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+  .stat.gold .v { color: var(--gold); }
+  .stat.life .v { color: var(--life); }
+  .stat.wave .v { color: #c5d6b8; }
+  .stat.next .v { color: #f0d48a; }
+  #stage {
+    flex: 1 1 auto;
+    position: relative;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      radial-gradient(120% 70% at 50% 0%, rgba(90,120,70,0.18), transparent 55%),
+      #0e120c;
+  }
+  canvas {
+    display: block;
+    touch-action: none;
+    max-width: 100%;
+    max-height: 100%;
+  }
+  footer {
+    flex: 0 0 auto;
+    padding: 8px 10px max(10px, env(safe-area-inset-bottom));
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+  }
+  .bar {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+  }
+  .card {
+    appearance: none;
+    -webkit-appearance: none;
+    font-family: inherit;
+    min-height: 72px;
+    border-radius: 12px;
+    border: 2px solid #4a5840;
+    background: #24301f;
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    cursor: pointer;
+    padding: 6px 4px 8px;
+    position: relative;
+    transition: transform 0.08s ease, border-color 0.12s ease, background 0.12s ease;
+  }
+  .card:active { transform: scale(0.97); }
+  .card.selected {
+    border-color: #e6c35c;
+    background: #314227;
+    box-shadow: 0 0 0 1px #e6c35c inset, 0 0 16px rgba(230,195,92,0.18);
+  }
+  .card.disabled {
+    opacity: 0.42;
+    filter: grayscale(0.35);
+  }
+  .icon {
+    width: 28px;
+    height: 28px;
+    position: relative;
+    margin-bottom: 2px;
+  }
+  .icon-arrow .shaft {
+    position: absolute; left: 12px; top: 6px; width: 4px; height: 18px;
+    background: var(--arrow); border-radius: 1px;
+  }
+  .icon-arrow .head {
+    position: absolute; left: 8px; top: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-bottom: 10px solid #c4553a;
+  }
+  .icon-ice .gem {
+    position: absolute; left: 6px; top: 4px; width: 16px; height: 16px;
+    background: linear-gradient(135deg, #c4f2ff, var(--ice) 40%, #2f7d99);
+    transform: rotate(45deg);
+    box-shadow: 0 0 8px rgba(110,199,224,0.5);
+  }
+  .icon-cannon .body {
+    position: absolute; left: 3px; top: 8px; width: 22px; height: 12px;
+    background: #6e6b66; border-radius: 4px 8px 8px 4px;
+  }
+  .icon-cannon .hole {
+    position: absolute; right: 4px; top: 11px; width: 6px; height: 6px;
+    background: #1a1a1a; border-radius: 50%;
+  }
+  .card .name { font-size: 14px; font-weight: 700; }
+  .card .cost { font-size: 12px; color: var(--gold); font-weight: 600; }
+  .overlay {
+    position: absolute; inset: 0;
+    background: rgba(8,10,6,0.72);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 5;
+    text-align: center;
+    padding: 24px;
+  }
+  .overlay.show { display: flex; }
+  .overlay h2 {
+    margin: 0;
+    font-size: 34px;
+    letter-spacing: 0.2em;
+  }
+  .overlay.win h2 { color: #d5e8a8; }
+  .overlay.lose h2 { color: #e8a0a0; }
+  .overlay p { margin: 0; color: var(--muted); font-size: 14px; }
+  #restart {
+    margin-top: 8px;
+    min-height: 48px;
+    min-width: 180px;
+    padding: 12px 28px;
+    border: 0;
+    border-radius: 12px;
+    background: var(--accent);
+    color: #142010;
+    font-size: 16px;
+    font-weight: 800;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  #restart:active { transform: scale(0.98); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="title-row">
+      <h1>窄路</h1>
+      <div class="hint" id="hint">选塔，再点空草地</div>
+    </div>
+    <div class="hud">
+      <div class="stat gold"><div class="k">金币</div><div class="v" id="gold">50</div></div>
+      <div class="stat life"><div class="k">生命</div><div class="v" id="lives">10</div></div>
+      <div class="stat wave"><div class="k">波次</div><div class="v" id="wave">1/10</div></div>
+      <div class="stat next"><div class="k">下一波</div><div class="v" id="next">5.0</div></div>
+    </div>
+  </header>
+  <div id="stage"><canvas id="cv"></canvas></div>
+  <footer>
+    <div class="bar">
+      <button type="button" class="card" data-type="arrow" id="card-arrow">
+        <div class="icon icon-arrow"><div class="head"></div><div class="shaft"></div></div>
+        <div class="name">箭</div>
+        <div class="cost">50</div>
+      </button>
+      <button type="button" class="card" data-type="ice" id="card-ice">
+        <div class="icon icon-ice"><div class="gem"></div></div>
+        <div class="name">冰</div>
+        <div class="cost">70</div>
+      </button>
+      <button type="button" class="card" data-type="cannon" id="card-cannon">
+        <div class="icon icon-cannon"><div class="body"></div><div class="hole"></div></div>
+        <div class="name">炮</div>
+        <div class="cost">120</div>
+      </button>
+    </div>
+  </footer>
+  <div class="overlay" id="overlay">
+    <h2 id="ov-title">胜利</h2>
+    <p id="ov-sub"></p>
+    <button type="button" id="restart">重新开始</button>
+  </div>
+</div>
+<script>
+(() => {
+  const COLS = 7, ROWS = 13;
+  const PATH = [
+    [1,0],[1,1],[1,2],[2,2],[3,2],[4,2],
+    [4,3],[4,4],[4,5],[3,5],[2,5],[1,5],
+    [1,6],[1,7],[1,8],[2,8],[3,8],[4,8],
+    [4,9],[4,10],[4,11],[5,11],[6,11]
+  ];
+  const PATH_SET = new Set(PATH.map(([c,r]) => c + "," + r));
+  const PATH_LEN = PATH.length; // 23 tiles, 22 tile-seconds between centers
+
+  const TOWER_DEF = {
+    arrow:  { name: "箭", cost: 50,  dmg: 8,  rate: 1.0, range: 2.5, splash: 0, slow: 0,   color: "#d8c49a" },
+    ice:    { name: "冰", cost: 70,  dmg: 3,  rate: 0.8, range: 2.0, splash: 0, slow: 0.4, color: "#6ec7e0" },
+    cannon: { name: "炮", cost: 120, dmg: 22, rate: 0.45,range: 2.0, splash: 1, slow: 0,   color: "#9a9590" }
+  };
+  const WAVES = [
+    { count: 6,  hp: 10, gold: 8,  interval: 1.2 },
+    { count: 8,  hp: 14, gold: 8,  interval: 1.1 },
+    { count: 8,  hp: 20, gold: 9,  interval: 1.0 },
+    { count: 10, hp: 26, gold: 9,  interval: 1.0 },
+    { count: 10, hp: 34, gold: 10, interval: 0.9 },
+    { count: 12, hp: 42, gold: 10, interval: 0.9 },
+    { count: 12, hp: 54, gold: 11, interval: 0.8 },
+    { count: 14, hp: 68, gold: 11, interval: 0.8 },
+    { count: 14, hp: 84, gold: 12, interval: 0.75 },
+    { count: 16, hp: 100,gold: 12, interval: 0.7 }
+  ];
+
+  const canvas = document.getElementById("cv");
+  const ctx = canvas.getContext("2d");
+  const stage = document.getElementById("stage");
+  const overlay = document.getElementById("overlay");
+
+  let dpr = 1, tile = 40, ox = 0, oy = 0, cssW = 0, cssH = 0;
+
+  const state = {
+    gold: 50,
+    lives: 10,
+    wave: 0, // 0-based current/upcoming wave
+    phase: "countdown", // countdown | combat | win | lose
+    countdown: 5,
+    selected: null,
+    hover: null,
+    towers: [],
+    creeps: [],
+    fx: [],
+    floats: [],
+    occupied: new Set(),
+    spawned: 0,
+    spawnTimer: 0,
+    leakFlash: 0,
+    hintOn: true
+  };
+
+  function reset() {
+    state.gold = 50;
+    state.lives = 10;
+    state.wave = 0;
+    state.phase = "countdown";
+    state.countdown = 5;
+    state.selected = null;
+    state.hover = null;
+    state.towers = [];
+    state.creeps = [];
+    state.fx = [];
+    state.floats = [];
+    state.occupied = new Set();
+    state.spawned = 0;
+    state.spawnTimer = 0;
+    state.leakFlash = 0;
+    state.hintOn = true;
+    overlay.classList.remove("show", "win", "lose");
+    syncCards();
+    hud();
+  }
+
+  function key(c, r) { return c + "," + r; }
+  function isPath(c, r) { return PATH_SET.has(key(c, r)); }
+  function inGrid(c, r) { return c >= 0 && r >= 0 && c < COLS && r < ROWS; }
+
+  function creepPos(cr) {
+    const maxP = PATH_LEN - 1;
+    const p = Math.max(0, Math.min(cr.progress, maxP));
+    const i = Math.min(Math.floor(p), maxP - 1);
+    const f = p - i;
+    const a = PATH[i], b = PATH[Math.min(i + 1, maxP)];
+    return { x: a[0] + (b[0] - a[0]) * f, y: a[1] + (b[1] - a[1]) * f };
+  }
+
+  function spawnCreep() {
+    const w = WAVES[state.wave];
+    state.creeps.push({
+      progress: 0,
+      hp: w.hp,
+      maxHp: w.hp,
+      slowT: 0,
+      gold: w.gold,
+      big: state.wave === 9
+    });
+  }
+
+  function killCreep(cr, idx) {
+    state.gold += cr.gold;
+    const p = creepPos(cr);
+    state.floats.push({ x: p.x, y: p.y, t: 0, text: "+" + cr.gold });
+    state.creeps.splice(idx, 1);
+  }
+
+  function leakCreep(idx) {
+    state.creeps.splice(idx, 1);
+    if (state.phase === "win" || state.phase === "lose") return;
+    state.lives -= 1;
+    state.leakFlash = 0.35;
+    if (state.lives <= 0) {
+      state.lives = 0;
+      lose();
+    }
+  }
+
+  function endWaveCheck() {
+    if (state.phase !== "combat") return;
+    if (state.spawned < WAVES[state.wave].count) return;
+    if (state.creeps.length > 0) return;
+    if (state.wave >= 9) win();
+    else {
+      state.wave += 1;
+      state.phase = "countdown";
+      state.countdown = 5;
+      state.spawned = 0;
+    }
+  }
+
+  function win() {
+    state.phase = "win";
+    overlay.classList.add("show", "win");
+    overlay.classList.remove("lose");
+    document.getElementById("ov-title").textContent = "胜利";
+    document.getElementById("ov-sub").textContent = "窄路守住了 · 十波尽灭";
+  }
+  function lose() {
+    state.phase = "lose";
+    overlay.classList.add("show", "lose");
+    overlay.classList.remove("win");
+    document.getElementById("ov-title").textContent = "失败";
+    document.getElementById("ov-sub").textContent = "有怪物漏出了出口";
+  }
+
+  function dist(ax, ay, bx, by) {
+    const dx = ax - bx, dy = ay - by;
+    return Math.hypot(dx, dy);
+  }
+
+  function fireTower(tw, dt) {
+    const def = TOWER_DEF[tw.type];
+    tw.cd -= dt;
+    if (tw.cd > 0) return;
+    let best = null, bestProg = -1;
+    for (const cr of state.creeps) {
+      const p = creepPos(cr);
+      if (dist(p.x, p.y, tw.c, tw.r) <= def.range + 1e-6) {
+        if (cr.progress > bestProg) { bestProg = cr.progress; best = cr; }
+      }
+    }
+    if (!best) return;
+    tw.cd = 1 / def.rate;
+    const tp = creepPos(best);
+    state.fx.push({
+      kind: "shot",
+      x0: tw.c, y0: tw.r, x1: tp.x, y1: tp.y,
+      t: 0, life: 0.12, color: def.color, type: tw.type
+    });
+    const targets = [];
+    if (def.splash > 0) {
+      state.fx.push({ kind: "splash", x: tp.x, y: tp.y, t: 0, life: 0.22 });
+      for (const cr of state.creeps) {
+        const p = creepPos(cr);
+        if (dist(p.x, p.y, tp.x, tp.y) <= def.splash + 1e-6) targets.push(cr);
+      }
+    } else {
+      targets.push(best);
+    }
+    for (const cr of targets) {
+      cr.hp -= def.dmg;
+      if (def.slow > 0) cr.slowT = 1.5; // refresh, no stack
+    }
+    for (let i = state.creeps.length - 1; i >= 0; i--) {
+      if (state.creeps[i].hp <= 0) killCreep(state.creeps[i], i);
+    }
+  }
+
+  function update(dt) {
+    if (state.phase === "win" || state.phase === "lose") {
+      for (const f of state.fx) f.t += dt;
+      state.fx = state.fx.filter(f => f.t < f.life);
+      for (const f of state.floats) f.t += dt;
+      state.floats = state.floats.filter(f => f.t < 0.7);
+      return;
+    }
+    state.leakFlash = Math.max(0, state.leakFlash - dt);
+
+    if (state.phase === "countdown") {
+      state.countdown -= dt;
+      if (state.countdown <= 0) {
+        state.countdown = 0;
+        state.phase = "combat";
+        state.spawned = 0;
+        state.spawnTimer = 0;
+      }
+    }
+
+    if (state.phase === "combat") {
+      const w = WAVES[state.wave];
+      state.spawnTimer -= dt;
+      while (state.spawned < w.count && state.spawnTimer <= 0) {
+        spawnCreep();
+        state.spawned += 1;
+        state.spawnTimer += w.interval;
+      }
+
+      for (const cr of state.creeps) {
+        cr.slowT = Math.max(0, cr.slowT - dt);
+        const spd = cr.slowT > 0 ? 0.6 : 1.0; // 40% slow
+        cr.progress += spd * dt;
+      }
+      for (let i = state.creeps.length - 1; i >= 0; i--) {
+        if (state.creeps[i].progress >= PATH_LEN - 1) leakCreep(i);
+      }
+
+      for (const tw of state.towers) fireTower(tw, dt);
+      endWaveCheck();
+    }
+
+    for (const f of state.fx) f.t += dt;
+    state.fx = state.fx.filter(f => f.t < f.life);
+    for (const f of state.floats) f.t += dt;
+    state.floats = state.floats.filter(f => f.t < 0.7);
+  }
+
+  function hud() {
+    document.getElementById("gold").textContent = String(state.gold);
+    document.getElementById("lives").textContent = String(state.lives);
+    document.getElementById("wave").textContent = (state.wave + 1) + "/10";
+    const next = document.getElementById("next");
+    if (state.phase === "countdown") next.textContent = state.countdown.toFixed(1);
+    else if (state.phase === "combat") next.textContent = "战斗中";
+    else if (state.phase === "win") next.textContent = "完成";
+    else next.textContent = "—";
+    document.getElementById("hint").textContent = state.hintOn ? "选塔，再点空草地" : "一路通关 · 不能升级";
+    document.querySelector(".stat.life").style.background = state.leakFlash > 0 ? "#4a2220" : "";
+    syncCards();
+  }
+
+  function syncCards() {
+    for (const type of ["arrow", "ice", "cannon"]) {
+      const el = document.getElementById("card-" + type);
+      const aff = state.gold >= TOWER_DEF[type].cost && state.phase !== "win" && state.phase !== "lose";
+      el.classList.toggle("disabled", !aff);
+      el.classList.toggle("selected", state.selected === type);
+    }
+  }
+
+  function tileAtCss(x, y) {
+    const c = Math.floor((x - ox) / tile);
+    const r = Math.floor((y - oy) / tile);
+    if (!inGrid(c, r)) return null;
+    return { c, r };
+  }
+
+  function tryPlace(c, r) {
+    if (state.phase === "win" || state.phase === "lose") return;
+    if (!state.selected) return;
+    if (!inGrid(c, r) || isPath(c, r)) return;
+    if (state.occupied.has(key(c, r))) return;
+    const def = TOWER_DEF[state.selected];
+    if (state.gold < def.cost) return;
+    state.gold -= def.cost;
+    state.towers.push({ c, r, type: state.selected, cd: 0 });
+    state.occupied.add(key(c, r));
+    state.hintOn = false;
+    hud();
+  }
+
+  function resize() {
+    const rect = stage.getBoundingClientRect();
+    cssW = rect.width;
+    cssH = rect.height;
+    dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    canvas.width = Math.max(1, Math.floor(cssW * dpr));
+    canvas.height = Math.max(1, Math.floor(cssH * dpr));
+    canvas.style.width = cssW + "px";
+    canvas.style.height = cssH + "px";
+    const pad = 8;
+    tile = Math.floor(Math.min((cssW - pad * 2) / COLS, (cssH - pad * 2) / ROWS));
+    tile = Math.max(18, tile);
+    ox = Math.floor((cssW - tile * COLS) / 2);
+    oy = Math.floor((cssH - tile * ROWS) / 2);
+  }
+
+  function txy(c, r) {
+    return { x: ox + (c + 0.5) * tile, y: oy + (r + 0.5) * tile };
+  }
+
+  function roundRect(x, y, w, h, r) {
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+  }
+
+  function draw() {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    // grass
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        ctx.fillStyle = ((c + r) & 1) ? "#3c5936" : "#355231";
+        ctx.fillRect(ox + c * tile, oy + r * tile, tile + 0.5, tile + 0.5);
+      }
+    }
+
+    // path
+    for (const [c, r] of PATH) {
+      ctx.fillStyle = "#a4845a";
+      ctx.fillRect(ox + c * tile, oy + r * tile, tile + 0.5, tile + 0.5);
+      ctx.fillStyle = "rgba(60,40,20,0.12)";
+      ctx.fillRect(ox + c * tile + tile * 0.18, oy + r * tile + tile * 0.18, tile * 0.64, tile * 0.64);
+    }
+
+    // grid
+    ctx.strokeStyle = "rgba(0,0,0,0.18)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let r = 0; r <= ROWS; r++) {
+      ctx.moveTo(ox, oy + r * tile);
+      ctx.lineTo(ox + COLS * tile, oy + r * tile);
+    }
+    for (let c = 0; c <= COLS; c++) {
+      ctx.moveTo(ox + c * tile, oy);
+      ctx.lineTo(ox + c * tile, oy + ROWS * tile);
+    }
+    ctx.stroke();
+
+    // start / end labels
+    const s = txy(PATH[0][0], PATH[0][1]);
+    const e = txy(PATH[PATH_LEN - 1][0], PATH[PATH_LEN - 1][1]);
+    drawBadge(s.x, s.y - tile * 0.38, "入口", "#2f6b3c");
+    drawBadge(e.x, e.y - tile * 0.38, "出口", "#7a3232");
+
+    // hover / range
+    const sel = state.selected && TOWER_DEF[state.selected];
+    if (sel && state.hover) {
+      const { c, r } = state.hover;
+      const valid = !isPath(c, r) && !state.occupied.has(key(c, r));
+      const p = txy(c, r);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, sel.range * tile, 0, Math.PI * 2);
+      ctx.fillStyle = valid ? "rgba(230,195,92,0.10)" : "rgba(180,60,50,0.10)";
+      ctx.fill();
+      ctx.strokeStyle = valid ? "rgba(230,195,92,0.7)" : "rgba(200,80,70,0.55)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (valid) {
+        ctx.fillStyle = "rgba(255,255,255,0.12)";
+        ctx.fillRect(ox + c * tile, oy + r * tile, tile, tile);
+        drawTowerShape(p.x, p.y, state.selected, 0.72);
+      }
+    }
+
+    // towers
+    for (const tw of state.towers) {
+      const p = txy(tw.c, tw.r);
+      if (state.selected && state.hover && state.hover.c === tw.c && state.hover.r === tw.r) {
+        // already showing selected type range; skip
+      }
+      drawTowerShape(p.x, p.y, tw.type, 1);
+    }
+
+    // shots
+    for (const f of state.fx) {
+      const a = 1 - f.t / f.life;
+      if (f.kind === "shot") {
+        const p0 = txy(f.x0, f.y0), p1 = txy(f.x1, f.y1);
+        ctx.strokeStyle = f.type === "ice" ? `rgba(140,220,240,${a})` :
+                          f.type === "cannon" ? `rgba(230,140,70,${a})` :
+                          `rgba(230,210,150,${a})`;
+        ctx.lineWidth = f.type === "cannon" ? 3.5 : 2;
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y);
+        ctx.lineTo(p1.x, p1.y);
+        ctx.stroke();
+      } else if (f.kind === "splash") {
+        const p = txy(f.x, f.y);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, tile * (0.4 + f.t * 3), 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(230,130,50,${a * 0.8})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
+
+    // creeps
+    for (const cr of state.creeps) {
+      const tp = creepPos(cr);
+      const p = txy(tp.x, tp.y);
+      const rad = tile * (cr.big ? 0.34 : 0.26);
+      ctx.save();
+      if (cr.slowT > 0) ctx.shadowColor = "#6ec7e0", ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y + 1, rad * 1.05, rad * 0.82, 0, 0, Math.PI * 2);
+      ctx.fillStyle = cr.slowT > 0 ? "#243a48" : "#1e1a24";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(p.x - rad * 0.15, p.y - rad * 0.12, rad * 0.72, rad * 0.55, -0.3, 0, Math.PI * 2);
+      ctx.fillStyle = cr.slowT > 0 ? "#3a5c6e" : "#2c2733";
+      ctx.fill();
+      ctx.restore();
+
+      const bw = tile * 0.46, bh = Math.max(3, tile * 0.07);
+      const bx = p.x - bw / 2, by = p.y - rad - bh - 3;
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.fillStyle = cr.hp / cr.maxHp > 0.4 ? "#7dcf6a" : "#d45a4a";
+      ctx.fillRect(bx, by, bw * Math.max(0, cr.hp / cr.maxHp), bh);
+    }
+
+    for (const f of state.floats) {
+      const p = txy(f.x, f.y);
+      ctx.globalAlpha = 1 - f.t / 0.7;
+      ctx.fillStyle = "#e6c35c";
+      ctx.font = `bold ${Math.max(11, tile * 0.28)}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillText(f.text, p.x, p.y - tile * 0.4 - f.t * tile * 0.6);
+      ctx.globalAlpha = 1;
+    }
+
+    // countdown watermark
+    if (state.phase === "countdown") {
+      const cx = ox + COLS * tile / 2;
+      const cy = oy + tile * 1.15;
+      ctx.fillStyle = "rgba(10,14,8,0.55)";
+      roundRect(cx - tile * 2.2, cy - tile * 0.55, tile * 4.4, tile * 1.35, 10);
+      ctx.fill();
+      ctx.fillStyle = "#f0d48a";
+      ctx.font = `800 ${Math.max(22, tile * 0.7)}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(Math.ceil(state.countdown).toString() + " 秒", cx, cy - tile * 0.12);
+      ctx.font = `${Math.max(11, tile * 0.26)}px sans-serif`;
+      ctx.fillStyle = "#dce6d0";
+      ctx.fillText(state.wave === 0 ? "第 1 波即将开始" : "下一波即将开始", cx, cy + tile * 0.42);
+    }
+  }
+
+  function drawBadge(x, y, text, color) {
+    ctx.font = `700 ${Math.max(10, tile * 0.26)}px "Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const w = Math.max(tile * 0.78, ctx.measureText(text).width + 10);
+    const h = Math.max(16, tile * 0.38);
+    ctx.fillStyle = color;
+    roundRect(x - w / 2, y - h / 2, w, h, 6);
+    ctx.fill();
+    ctx.fillStyle = "#f4f1ea";
+    ctx.fillText(text, x, y + 0.5);
+  }
+
+  function drawTowerShape(x, y, type, alpha) {
+    ctx.save();
+    ctx.globalAlpha *= alpha;
+    const s = tile;
+    if (type === "arrow") {
+      ctx.fillStyle = "#4a4034";
+      roundRect(x - s * 0.22, y + s * 0.08, s * 0.44, s * 0.22, 3);
+      ctx.fill();
+      ctx.fillStyle = "#d8c49a";
+      roundRect(x - s * 0.11, y - s * 0.28, s * 0.22, s * 0.48, 3);
+      ctx.fill();
+      ctx.fillStyle = "#c4553a";
+      ctx.beginPath();
+      ctx.moveTo(x, y - s * 0.42);
+      ctx.lineTo(x + s * 0.14, y - s * 0.22);
+      ctx.lineTo(x - s * 0.14, y - s * 0.22);
+      ctx.closePath();
+      ctx.fill();
+    } else if (type === "ice") {
+      ctx.translate(x, y);
+      ctx.fillStyle = "#2a6d82";
+      ctx.beginPath();
+      ctx.moveTo(0, -s * 0.36); ctx.lineTo(s * 0.2, 0); ctx.lineTo(0, s * 0.36); ctx.lineTo(-s * 0.2, 0);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#8fe3f4";
+      ctx.beginPath();
+      ctx.moveTo(0, -s * 0.28); ctx.lineTo(s * 0.14, 0); ctx.lineTo(0, s * 0.12); ctx.lineTo(-s * 0.08, -0.02 * s);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = "#d7f7ff";
+      ctx.beginPath();
+      ctx.moveTo(0, -s * 0.26); ctx.lineTo(s * 0.05, -s * 0.06); ctx.lineTo(-s * 0.04, -s * 0.02);
+      ctx.closePath(); ctx.fill();
+    } else if (type === "cannon") {
+      ctx.fillStyle = "#3d3c3a";
+      ctx.beginPath();
+      ctx.ellipse(x, y + s * 0.08, s * 0.28, s * 0.18, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#8a8680";
+      roundRect(x - s * 0.06, y - s * 0.18, s * 0.42, s * 0.26, s * 0.12);
+      ctx.fill();
+      ctx.fillStyle = "#1a1918";
+      ctx.beginPath();
+      ctx.arc(x + s * 0.32, y - s * 0.05, s * 0.08, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#c4b8a0";
+      ctx.fillRect(x - s * 0.08, y - s * 0.2, s * 0.08, s * 0.3);
+    }
+    ctx.restore();
+  }
+
+  // input
+  document.querySelectorAll(".card").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const type = btn.dataset.type;
+      if (state.gold < TOWER_DEF[type].cost) return;
+      state.selected = state.selected === type ? null : type;
+      syncCards();
+    });
+  });
+  document.getElementById("restart").addEventListener("click", reset);
+
+  function ptrToTile(ev) {
+    const rect = canvas.getBoundingClientRect();
+    return tileAtCss(ev.clientX - rect.left, ev.clientY - rect.top);
+  }
+  canvas.addEventListener("pointermove", ev => {
+    state.hover = ptrToTile(ev);
+  });
+  canvas.addEventListener("pointerdown", ev => {
+    ev.preventDefault();
+    try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
+    state.hover = ptrToTile(ev);
+  });
+  canvas.addEventListener("pointerup", ev => {
+    const t = ptrToTile(ev);
+    state.hover = t;
+    if (t) tryPlace(t.c, t.r);
+  });
+  canvas.addEventListener("pointerleave", () => { state.hover = null; });
+  canvas.addEventListener("contextmenu", ev => ev.preventDefault());
+
+  window.addEventListener("resize", resize);
+  new ResizeObserver(resize).observe(stage);
+
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    update(dt);
+    hud();
+    draw();
+    requestAnimationFrame(loop);
+  }
+  resize();
+  reset();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
