@@ -109,11 +109,19 @@
     [0.5665, 0.6775],[0.5702, 0.7328],[0.5544, 0.7809],[0.5269, 0.8188],[0.4996, 0.8570],
     [0.4727, 0.8958],[0.4594, 0.9445],[0.4340, 0.9856]
   ];
-  // 石台：中心对上格子。美术给像素点后再钉。
+  // 石台中心对格。前三座按美术像素钉死（1536×1024 左上原点），其余沿路空台。
   const PADS = [
-    { c: 2, r: 1, u: 0.374, v: 0.227 },
-    { c: 5, r: 4, u: 0.804, v: 0.488 },
-    { c: 0, r: 5, u: 0.230, v: 0.625 }
+    { c: 2, r: 1, u: 540/1536, v: 300/1024, painted: true },
+    { c: 5, r: 4, u: 1140/1536, v: 490/1024, painted: true },
+    { c: 0, r: 5, u: 250/1536, v: 640/1024, painted: true },
+    { c: 3, r: 4, u: 0.4935, v: 0.3027, painted: false },
+    { c: 0, r: 2, u: 0.7773, v: 0.2559, painted: false },
+    { c: 3, r: 6, u: 0.5599, v: 0.4453, painted: false },
+    { c: 2, r: 9, u: 0.7943, v: 0.5977, painted: false },
+    { c: 3, r: 9, u: 0.7318, v: 0.7871, painted: false },
+    { c: 5, r: 9, u: 0.4310, v: 0.7402, painted: false },
+    { c: 3, r: 11, u: 0.2161, v: 0.8203, painted: false },
+    { c: 3, r: 7, u: 0.4792, v: 0.7188, painted: false }
   ];
   const TOWER_DEF = {
     arrow:  { name: "箭", cost: 50,  dmg: 8,  rate: 1.0, range: 2.5, splash: 0, slow: 0 },
@@ -140,6 +148,7 @@
   const IMG = {};
   const IMG_SRC = {
     map: "assets/battlefield.png",
+    pad: "assets/tile-pad.png",
     arrow: "assets/tower-arrow.png",
     ice: "assets/tower-ice.png",
     cannon: "assets/tower-cannon.png",
@@ -417,6 +426,16 @@
     }
 
     const tp = tilePx();
+    const extras = PADS.filter(p => !p.painted).sort((a, b) => a.v - b.v);
+    for (const p of extras) {
+      const s = uvToScreen(p.u, p.v);
+      if (!blit(IMG.pad, s.x, s.y + tp * 0.15, tp * 1.55, 0)) {
+        ctx.fillStyle = "#8a8680";
+        ctx.beginPath(); ctx.ellipse(s.x, s.y, tp * 0.55, tp * 0.32, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#c5c2bb";
+        ctx.beginPath(); ctx.ellipse(s.x, s.y, tp * 0.32, tp * 0.18, 0, 0, Math.PI * 2); ctx.fill();
+      }
+    }
     const s0 = uvToScreen(PATH_UV[0][0], PATH_UV[0][1]);
     const s1 = uvToScreen(PATH_UV[PATH_LEN - 1][0], PATH_UV[PATH_LEN - 1][1]);
     ctx.font = "700 11px sans-serif"; ctx.textAlign = "center";
