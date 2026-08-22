@@ -8,7 +8,7 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
     margin: 0; height: 100%;
-    background: #6a8a4e;
+    background: #2d3d22;
     color: #f4f1ea;
     font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Heiti SC", sans-serif;
     user-select: none; overflow: hidden;
@@ -17,7 +17,7 @@
   #app {
     width: 100%; max-width: 430px; height: 100%; height: 100dvh;
     display: flex; flex-direction: column; position: relative; overflow: hidden;
-    background: #6a8a4e;
+    background: #2d3d22;
   }
   header {
     flex: 0 0 auto;
@@ -101,10 +101,24 @@
   ];
   const PATH_SET = new Set(PATH.map(([c,r]) => c + "," + r));
   const PATH_LEN = PATH.length;
+  // 画上路的 UV（入口在图上右，出口在图下中），逻辑格子仍是上面那条 S
+  const PATH_UV = [
+    [0.7367, 0.1009],[0.7062, 0.1330],[0.6751, 0.1592],[0.6406, 0.1776],[0.6063, 0.1934],
+    [0.5845, 0.2373],[0.5872, 0.2930],[0.5691, 0.3398],[0.5420, 0.3783],[0.5120, 0.4116],
+    [0.4856, 0.4502],[0.4821, 0.5048],[0.4895, 0.5583],[0.5172, 0.5957],[0.5442, 0.6343],
+    [0.5665, 0.6775],[0.5702, 0.7328],[0.5544, 0.7809],[0.5269, 0.8188],[0.4996, 0.8570],
+    [0.4727, 0.8958],[0.4594, 0.9445],[0.4340, 0.9856]
+  ];
+  // 石台：中心对上格子。美术给像素点后再钉。
+  const PADS = [
+    { c: 2, r: 1, u: 0.374, v: 0.227 },
+    { c: 5, r: 4, u: 0.804, v: 0.488 },
+    { c: 0, r: 5, u: 0.230, v: 0.625 }
+  ];
   const TOWER_DEF = {
-    arrow:  { name: "箭", cost: 50,  dmg: 8,  rate: 1.0, range: 2.5, splash: 0, slow: 0,   color: "#d8c49a" },
-    ice:    { name: "冰", cost: 70,  dmg: 3,  rate: 0.8, range: 2.0, splash: 0, slow: 0.4, color: "#6ec7e0" },
-    cannon: { name: "炮", cost: 120, dmg: 22, rate: 0.45,range: 2.0, splash: 1, slow: 0,   color: "#9a9590" }
+    arrow:  { name: "箭", cost: 50,  dmg: 8,  rate: 1.0, range: 2.5, splash: 0, slow: 0 },
+    ice:    { name: "冰", cost: 70,  dmg: 3,  rate: 0.8, range: 2.0, splash: 0, slow: 0.4 },
+    cannon: { name: "炮", cost: 120, dmg: 22, rate: 0.45,range: 2.0, splash: 1, slow: 0 }
   };
   const WAVES = [
     { count: 6,  hp: 10, gold: 8,  interval: 1.2 },
@@ -125,18 +139,13 @@
   const overlay = document.getElementById("overlay");
   const IMG = {};
   const IMG_SRC = {
-    grass: "assets/tile-grass.png",
-    path: "assets/tile-path.png",
-    pad: "assets/tile-pad.png",
+    map: "assets/battlefield.png",
     arrow: "assets/tower-arrow.png",
     ice: "assets/tower-ice.png",
     cannon: "assets/tower-cannon.png",
     place: "assets/fx-place.png",
     splash: "assets/fx-splash.png",
-    slow: "assets/fx-ice.png",
-    bolt: "assets/fx-bolt.png",
-    treeRound: "assets/tree-round.png",
-    treePine: "assets/tree-pine.png"
+    slow: "assets/fx-ice.png"
   };
   function loadImages(done) {
     const keys = Object.keys(IMG_SRC);
@@ -155,19 +164,10 @@
     return true;
   }
 
-  let dpr = 1, cssW = 0, cssH = 0, TW = 52, TH = 26, originX = 0, originY = 0;
-  const GH = 16, PH = 5; // grass / path extrusion
-
-  const TREES = [];
-  (function seedTrees() {
-    const spots = [
-      [-0.7, 0.2, 1], [ -0.85, 3, 0], [-0.6, 6.2, 1], [-0.9, 9.5, 0], [-0.55, 12.2, 1],
-      [6.7, 0.4, 0], [6.85, 2.8, 1], [6.6, 5.5, 0], [6.9, 8.2, 1], [6.55, 11.4, 0],
-      [0.2, -0.7, 1], [2.5, -0.75, 0], [4.8, -0.65, 1],
-      [1.2, 12.7, 0], [3.6, 12.75, 1], [5.4, 12.65, 0]
-    ];
-    for (const [c,r,k] of spots) TREES.push({ c, r, round: k === 1, s: 0.85 + ((c*13+r*7)%5)*0.06 });
-  })();
+  let dpr = 1, cssW = 0, cssH = 0;
+  let camYaw = 0, camZoom = 1;
+  const ZMIN = 0.85, ZMAX = 2.15;
+  function clampZ(z) { return Math.max(ZMIN, Math.min(ZMAX, z)); }
 
   const state = {
     gold: 50, lives: 10, wave: 0, phase: "countdown", countdown: 5,
@@ -186,14 +186,8 @@
   }
 
   function key(c, r) { return c + "," + r; }
-  function isPath(c, r) { return PATH_SET.has(key(c, r)); }
-  function inGrid(c, r) { return c >= 0 && r >= 0 && c < COLS && r < ROWS; }
-  function besidePath(c, r) {
-    if (isPath(c, r)) return false;
-    return [[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy]) => isPath(c+dx, r+dy));
-  }
-
-  function creepPos(cr) {
+  function padAt(c, r) { return PADS.find(p => p.c === c && p.r === r) || null; }
+  function creepGrid(cr) {
     const maxP = PATH_LEN - 1;
     const p = Math.max(0, Math.min(cr.progress, maxP));
     const i = Math.min(Math.floor(p), maxP - 1);
@@ -201,55 +195,47 @@
     const a = PATH[i], b = PATH[Math.min(i + 1, maxP)];
     return { x: a[0] + (b[0] - a[0]) * f, y: a[1] + (b[1] - a[1]) * f };
   }
+  function pathUV(progress) {
+    const maxP = PATH_LEN - 1;
+    const p = Math.max(0, Math.min(progress, maxP));
+    const i = Math.min(Math.floor(p), maxP - 1);
+    const f = p - i;
+    const a = PATH_UV[i], b = PATH_UV[Math.min(i + 1, maxP)];
+    return { u: a[0] + (b[0] - a[0]) * f, v: a[1] + (b[1] - a[1]) * f };
+  }
 
-  let camYaw = 0, camZoom = 1;
-  const ZMIN = 0.78, ZMAX = 2.2;
-  function clampZ(z) { return Math.max(ZMIN, Math.min(ZMAX, z)); }
-  function Z(n) { return n * camZoom; }
-  function rotGrid(c, r) {
-    const cx = (COLS - 1) * 0.5, cy = (ROWS - 1) * 0.5;
-    const dc = c - cx, dr = r - cy;
+  function layout() {
+    const img = IMG.map;
+    const iw = (img && img.naturalWidth) || 1536;
+    const ih = (img && img.naturalHeight) || 1024;
+    const fit = Math.min(cssW / iw, cssH / ih) * 1.18;
+    return { cx: cssW * 0.5, cy: cssH * 0.52, sc: fit * camZoom, iw, ih };
+  }
+  function uvToScreen(u, v) {
+    const L = layout();
+    const x = (u - 0.5) * L.iw * L.sc;
+    const y = (v - 0.5) * L.ih * L.sc;
     const cs = Math.cos(camYaw), sn = Math.sin(camYaw);
-    return { c: cx + dc * cs - dr * sn, r: cy + dc * sn + dr * cs };
+    return { x: L.cx + x * cs - y * sn, y: L.cy + x * sn + y * cs };
   }
-  function depth(c, r) { const g = rotGrid(c, r); return g.c + g.r; }
-
-  function iso(c, r, h) {
-    const g = rotGrid(c, r);
-    return {
-      x: originX + (g.c - g.r) * (TW / 2) * camZoom,
-      y: originY + (g.c + g.r) * (TH / 2) * camZoom - (h || 0) * camZoom
-    };
+  function tilePx() {
+    let s = 0;
+    for (let i = 1; i < PATH_LEN; i++) {
+      const a = uvToScreen(PATH_UV[i - 1][0], PATH_UV[i - 1][1]);
+      const b = uvToScreen(PATH_UV[i][0], PATH_UV[i][1]);
+      s += Math.hypot(a.x - b.x, a.y - b.y);
+    }
+    return s / (PATH_LEN - 1);
   }
-
-  function diamond(c, r, h) {
-    const p = iso(c, r, h);
-    return [
-      { x: p.x, y: p.y - Z(TH) / 2 },
-      { x: p.x + Z(TW) / 2, y: p.y },
-      { x: p.x, y: p.y + Z(TH) / 2 },
-      { x: p.x - Z(TW) / 2, y: p.y }
-    ];
-  }
-
-  function fillPoly(pts, fill) {
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-    ctx.closePath();
-    ctx.fillStyle = fill;
-    ctx.fill();
-  }
-
-  function drawPrism(c, r, h, top, left, right) {
-    const img = isPath(c, r) ? IMG.path : IMG.grass;
-    const p = iso(c, r, 0);
-    if (blit(img, p.x, p.y + Z(TH) * 0.55, Z(TW) * 1.28, 0)) return;
-    const topPts = diamond(c, r, h);
-    const bot = diamond(c, r, 0);
-    fillPoly([topPts[3], topPts[2], bot[2], bot[3]], left);
-    fillPoly([topPts[1], topPts[2], bot[2], bot[1]], right);
-    fillPoly(topPts, top);
+  function padAtCss(x, y) {
+    let best = null, bestD = 1e9;
+    const lim = tilePx() * 1.15;
+    for (const p of PADS) {
+      const s = uvToScreen(p.u, p.v);
+      const d = Math.hypot(x - s.x, y - s.y);
+      if (d < lim && d < bestD) { bestD = d; best = p; }
+    }
+    return best;
   }
 
   function spawnCreep() {
@@ -258,8 +244,8 @@
   }
   function killCreep(cr, idx) {
     state.gold += cr.gold;
-    const p = creepPos(cr);
-    state.floats.push({ x: p.x, y: p.y, t: 0, text: "+" + cr.gold });
+    const uv = pathUV(cr.progress);
+    state.floats.push({ u: uv.u, v: uv.v, t: 0, text: "+" + cr.gold });
     state.creeps.splice(idx, 1);
   }
   function leakCreep(idx) {
@@ -296,21 +282,27 @@
     if (tw.cd > 0) return;
     let best = null, bestProg = -1;
     for (const cr of state.creeps) {
-      const p = creepPos(cr);
+      const p = creepGrid(cr);
       if (dist(p.x, p.y, tw.c, tw.r) <= def.range + 1e-6 && cr.progress > bestProg) {
         bestProg = cr.progress; best = cr;
       }
     }
     if (!best) return;
     tw.cd = 1 / def.rate;
-    const tp = creepPos(best);
-    state.fx.push({ kind: "shot", x0: tw.c, y0: tw.r, x1: tp.x, y1: tp.y, t: 0, life: 0.12, type: tw.type });
+    const tp = pathUV(best.progress);
+    const tu = padAt(tw.c, tw.r);
+    state.fx.push({
+      kind: "shot",
+      u0: tu ? tu.u : tp.u, v0: tu ? tu.v : tp.v,
+      u1: tp.u, v1: tp.v, t: 0, life: 0.12, type: tw.type
+    });
+    const g = creepGrid(best);
     const targets = [];
     if (def.splash > 0) {
-      state.fx.push({ kind: "splash", x: tp.x, y: tp.y, t: 0, life: 0.28 });
+      state.fx.push({ kind: "splash", u: tp.u, v: tp.v, t: 0, life: 0.28 });
       for (const cr of state.creeps) {
-        const p = creepPos(cr);
-        if (dist(p.x, p.y, tp.x, tp.y) <= def.splash + 1e-6) targets.push(cr);
+        const p = creepGrid(cr);
+        if (dist(p.x, p.y, g.x, g.y) <= def.splash + 1e-6) targets.push(cr);
       }
     } else targets.push(best);
     for (const cr of targets) {
@@ -376,33 +368,16 @@
     }
   }
 
-  function tileH(c, r) { return isPath(c, r) ? PH : GH; }
-
-  function tileAtCss(x, y) {
-    let best = null, bestD = 1e9;
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        const p = iso(c, r, tileH(c, r));
-        const dx = (x - p.x) / (Z(TW) / 2);
-        const dy = (y - p.y) / (Z(TH) / 2);
-        const d = Math.abs(dx) + Math.abs(dy);
-        if (d <= 1.12 && d < bestD) { bestD = d; best = { c, r }; }
-      }
-    }
-    return best;
-  }
-
-  function tryPlace(c, r) {
-    if (state.phase === "win" || state.phase === "lose") return;
+  function tryPlace(pad) {
+    if (!pad || state.phase === "win" || state.phase === "lose") return;
     if (!state.selected) return;
-    if (!inGrid(c, r) || isPath(c, r)) return;
-    if (state.occupied.has(key(c, r))) return;
+    if (state.occupied.has(key(pad.c, pad.r))) return;
     const def = TOWER_DEF[state.selected];
     if (state.gold < def.cost) return;
     state.gold -= def.cost;
-    state.towers.push({ c, r, type: state.selected, cd: 0 });
-    state.occupied.add(key(c, r));
-    state.fx.push({ kind: "place", x: c, y: r, t: 0, life: 0.4 });
+    state.towers.push({ c: pad.c, r: pad.r, u: pad.u, v: pad.v, type: state.selected, cd: 0 });
+    state.occupied.add(key(pad.c, pad.r));
+    state.fx.push({ kind: "place", u: pad.u, v: pad.v, t: 0, life: 0.4 });
     hud();
   }
 
@@ -414,171 +389,119 @@
     canvas.height = Math.max(1, Math.floor(cssH * dpr));
     canvas.style.width = cssW + "px";
     canvas.style.height = cssH + "px";
-    const spanX = (COLS + ROWS) * 0.5;
-    const spanY = (COLS + ROWS) * 0.5;
-    TW = Math.min(cssW / (spanX + 1.6), cssH / ((spanY * 0.5) + 3.2) * 2);
-    TW = Math.max(28, Math.min(64, TW));
-    TH = TW * 0.5;
-    originX = cssW / 2;
-    originY = cssH * 0.18 + TH;
   }
 
-  function drawTree(t) {
-    const p = iso(t.c, t.r, GH);
-    const img = t.round ? IMG.treeRound : IMG.treePine;
-    const w = Z(TW) * (t.round ? 0.95 : 0.72) * t.s;
-    if (blit(img, p.x, p.y + TH * 0.05, w, 0)) return;
-    const s = TW * 0.22 * t.s;
-    ctx.fillStyle = "#5a3a22";
-    ctx.fillRect(p.x - s * 0.12, p.y - s * 0.15, s * 0.24, s * 0.55);
-  }
-
-  function drawPad(c, r) {
-    const p = iso(c, r, GH);
-    if (blit(IMG.pad, p.x, p.y + Z(TH) * 0.2, Z(TW) * 0.95, 0)) return;
-    ctx.fillStyle = "#8a8680";
-    ctx.beginPath(); ctx.ellipse(p.x, p.y, TW * 0.22, TH * 0.22, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "#c5c2bb";
-    ctx.beginPath(); ctx.ellipse(p.x, p.y, TW * 0.13, TH * 0.13, 0, 0, Math.PI * 2); ctx.fill();
-  }
-
-  function drawHouse(c, r, type, ghost) {
-    const base = iso(c, r, GH + 2);
+  function drawHouse(u, v, type, ghost) {
+    const p = uvToScreen(u, v);
+    const w = tilePx() * 2.15;
     ctx.save();
     if (ghost) ctx.globalAlpha = 0.55;
     const timg = type === "ice" ? IMG.ice : type === "cannon" ? IMG.cannon : IMG.arrow;
-    if (blit(timg, base.x, base.y + Z(TH) * 0.05, Z(TW) * (type === "cannon" ? 0.92 : 0.82), 0)) {
-      ctx.restore();
-      return;
-    }
-    const w = TW * 0.28, d = TH * 0.28, h = type === "cannon" ? 18 : type === "ice" ? 22 : 24;
-    const x = base.x, y = base.y - 2;
-    const wall = type === "arrow" ? "#7a5530" : type === "ice" ? "#7aa7c2" : "#5a5854";
-    const wallL = type === "arrow" ? "#5a3a22" : type === "ice" ? "#5e7a90" : "#3d3c3a";
-    const roof = type === "arrow" ? "#a07a4a" : type === "ice" ? "#8fe3f4" : "#2a2928";
-    fillPoly([{x:x-w,y:y},{x:x,y:y+d},{x:x,y:y+d-h},{x:x-w,y:y-h}], wallL);
-    fillPoly([{x:x+w,y:y},{x:x,y:y+d},{x:x,y:y+d-h},{x:x+w,y:y-h}], wall);
-    fillPoly([{x:x-w,y:y-h},{x:x,y:y-h-d},{x:x+w,y:y-h},{x:x,y:y-h+d}], roof);
-    ctx.fillStyle = "#3b2a18";
-    ctx.fillRect(x - 3, y - h * 0.45, 6, h * 0.32);
-    if (type === "arrow") {
-      ctx.strokeStyle = "#e6c35c"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(x - 8, y - h - 6); ctx.lineTo(x + 8, y - h - 6); ctx.stroke();
-    } else if (type === "ice") {
-      ctx.fillStyle = "#7fe3f2";
-      ctx.beginPath(); ctx.moveTo(x, y - h - 14); ctx.lineTo(x + 6, y - h - 2); ctx.lineTo(x - 6, y - h - 2); ctx.fill();
-    } else {
-      ctx.fillStyle = "#1a1918";
-      ctx.fillRect(x - 2, y - h - 8, 14, 6);
-    }
+    blit(timg, p.x, p.y + 4, w * (type === "cannon" ? 1.05 : 0.95), 0);
     ctx.restore();
   }
 
   function draw() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = "#6a8a4e";
+    ctx.fillStyle = "#2d3d22";
     ctx.fillRect(0, 0, cssW, cssH);
-    const grd = ctx.createRadialGradient(cssW*0.5, cssH*0.2, 20, cssW*0.5, cssH*0.5, cssW);
-    grd.addColorStop(0, "rgba(255,255,220,0.12)");
-    grd.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = grd; ctx.fillRect(0, 0, cssW, cssH);
 
-    const cells = [];
-    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) cells.push({ c, r, z: c + r });
-    cells.sort((a, b) => depth(a.c, a.r) - depth(b.c, b.r));
+    const L = layout();
+    if (IMG.map && IMG.map.naturalWidth) {
+      ctx.save();
+      ctx.translate(L.cx, L.cy);
+      ctx.rotate(camYaw);
+      ctx.scale(L.sc, L.sc);
+      ctx.drawImage(IMG.map, -L.iw / 2, -L.ih / 2, L.iw, L.ih);
+      ctx.restore();
+    }
 
-    for (const cell of cells) {
-      const { c, r } = cell;
-      if (isPath(c, r)) {
-        drawPrism(c, r, PH, "#c4a06a", "#8a6844", "#a4845a");
-      } else {
-        const top = ((c + r) & 1) ? "#3e7532" : "#4f8a3e";
-        drawPrism(c, r, GH, top, "#6b4e2e", "#5a4026");
-        if (besidePath(c, r)) drawPad(c, r);
+    const tp = tilePx();
+    const s0 = uvToScreen(PATH_UV[0][0], PATH_UV[0][1]);
+    const s1 = uvToScreen(PATH_UV[PATH_LEN - 1][0], PATH_UV[PATH_LEN - 1][1]);
+    ctx.font = "700 11px sans-serif"; ctx.textAlign = "center";
+    ctx.fillStyle = "#2f6b3c"; ctx.fillText("入口", s0.x, s0.y - 14);
+    ctx.fillStyle = "#7a3232"; ctx.fillText("出口", s1.x, s1.y + 16);
+
+    if (state.selected) {
+      for (const p of PADS) {
+        if (state.occupied.has(key(p.c, p.r))) continue;
+        const s = uvToScreen(p.u, p.v);
+        ctx.beginPath();
+        ctx.ellipse(s.x, s.y, tp * 0.72, tp * 0.42, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(230,195,92,0.55)";
+        ctx.lineWidth = 2; ctx.stroke();
       }
     }
 
-    TREES.sort((a, b) => depth(a.c, a.r) - depth(b.c, b.r));
-    for (const t of TREES) drawTree(t);
-
-    const s0 = iso(PATH[0][0], PATH[0][1], PH);
-    const s1 = iso(PATH[PATH_LEN-1][0], PATH[PATH_LEN-1][1], PH);
-    ctx.font = "700 11px sans-serif"; ctx.textAlign = "center";
-    ctx.fillStyle = "#2f6b3c"; ctx.fillText("入口", s0.x, s0.y - 18);
-    ctx.fillStyle = "#7a3232"; ctx.fillText("出口", s1.x, s1.y - 18);
-
     if (state.selected && state.hover) {
-      const { c, r } = state.hover;
-      const valid = inGrid(c, r) && !isPath(c, r) && !state.occupied.has(key(c, r));
-      const p = iso(c, r, GH + 2);
+      const p = state.hover;
+      const valid = !state.occupied.has(key(p.c, p.r));
+      const s = uvToScreen(p.u, p.v);
       ctx.beginPath();
-      ctx.ellipse(p.x, p.y, TOWER_DEF[state.selected].range * Z(TW) * 0.42,
-                  TOWER_DEF[state.selected].range * Z(TH) * 0.42, 0, 0, Math.PI * 2);
-      ctx.strokeStyle = valid ? "rgba(230,195,92,0.8)" : "rgba(200,80,70,0.6)";
+      ctx.ellipse(s.x, s.y, TOWER_DEF[state.selected].range * tp,
+                  TOWER_DEF[state.selected].range * tp * 0.55, 0, 0, Math.PI * 2);
+      ctx.strokeStyle = valid ? "rgba(230,195,92,0.85)" : "rgba(200,80,70,0.6)";
       ctx.lineWidth = 2; ctx.stroke();
-      if (valid) drawHouse(c, r, state.selected, true);
+      if (valid) drawHouse(p.u, p.v, state.selected, true);
     }
 
-    const towersSorted = state.towers.slice().sort((a, b) => depth(a.c, a.r) - depth(b.c, b.r));
-    for (const tw of towersSorted) drawHouse(tw.c, tw.r, tw.type, false);
+    const towersSorted = state.towers.slice().sort((a, b) => a.v - b.v);
+    for (const tw of towersSorted) drawHouse(tw.u, tw.v, tw.type, false);
 
     for (const f of state.fx) {
       const a = 1 - f.t / f.life;
       if (f.kind === "shot") {
-        const p0 = iso(f.x0, f.y0, GH + 22), p1 = iso(f.x1, f.y1, PH + 10);
+        const p0 = uvToScreen(f.u0, f.v0), p1 = uvToScreen(f.u1, f.v1);
         ctx.strokeStyle = f.type === "ice" ? `rgba(140,220,240,${a})` :
                           f.type === "cannon" ? `rgba(230,140,70,${a})` : `rgba(230,210,150,${a})`;
         ctx.lineWidth = f.type === "cannon" ? 3.5 : 2;
-        ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(p0.x, p0.y - tp * 0.8); ctx.lineTo(p1.x, p1.y); ctx.stroke();
       } else if (f.kind === "splash") {
-        const p = iso(f.x, f.y, PH + 4);
+        const p = uvToScreen(f.u, f.v);
         ctx.globalAlpha = a;
-        if (!blit(IMG.splash, p.x, p.y + Z(TH) * 0.2, Z(TW) * (0.7 + f.t * 1.1), 0)) {
-          const rad = TW * (0.18 + f.t * 1.4);
-          ctx.beginPath(); ctx.ellipse(p.x, p.y, rad, rad * 0.5, 0, 0, Math.PI * 2);
+        if (!blit(IMG.splash, p.x, p.y + 4, tp * (1.4 + f.t * 2.2), 0)) {
+          ctx.beginPath(); ctx.ellipse(p.x, p.y, tp * (0.4 + f.t * 2), tp * (0.22 + f.t), 0, 0, Math.PI * 2);
           ctx.strokeStyle = `rgba(255,120,30,${a * 0.9})`; ctx.lineWidth = 3; ctx.stroke();
-          ctx.fillStyle = `rgba(230,90,20,${a * 0.18})`; ctx.fill();
         }
         ctx.globalAlpha = 1;
       } else if (f.kind === "place") {
-        const p = iso(f.x, f.y, GH + 3);
+        const p = uvToScreen(f.u, f.v);
         ctx.globalAlpha = a;
-        if (!blit(IMG.place, p.x, p.y + Z(TH) * 0.15, Z(TW) * (0.7 + f.t * 0.6), 0)) {
-          const rad = TW * (0.12 + f.t * 0.55);
-          ctx.beginPath(); ctx.ellipse(p.x, p.y, rad, rad * 0.5, 0, 0, Math.PI * 2);
+        if (!blit(IMG.place, p.x, p.y + 4, tp * (1.3 + f.t * 1.2), 0)) {
+          ctx.beginPath(); ctx.ellipse(p.x, p.y, tp * (0.3 + f.t), tp * (0.16 + f.t * 0.5), 0, 0, Math.PI * 2);
           ctx.strokeStyle = `rgba(255,210,70,${a})`; ctx.lineWidth = 3; ctx.stroke();
         }
         ctx.globalAlpha = 1;
       }
     }
 
-    const creepsSorted = state.creeps.slice().sort((a, b) => {
-      const pa = creepPos(a), pb = creepPos(b);
-      return depth(pa.x, pa.y) - depth(pb.x, pb.y);
-    });
+    const creepsSorted = state.creeps.slice().sort((a, b) => pathUV(a.progress).v - pathUV(b.progress).v);
     for (const cr of creepsSorted) {
-      const tp = creepPos(cr);
-      const p = iso(tp.x, tp.y, PH + 8);
-      const rad = Z(TW) * (cr.big ? 0.16 : 0.12);
-      ctx.fillStyle = cr.slowT > 0 ? "rgba(80,180,220,0.35)" : "transparent";
+      const uv = pathUV(cr.progress);
+      const p = uvToScreen(uv.u, uv.v);
+      const rad = tp * (cr.big ? 0.38 : 0.28);
       if (cr.slowT > 0) {
-        if (!blit(IMG.slow, p.x, p.y + rad * 0.6, Z(TW) * 0.55, 0)) {
+        ctx.globalAlpha = 0.85;
+        if (!blit(IMG.slow, p.x, p.y + rad * 0.4, tp * 1.05, 0)) {
+          ctx.fillStyle = "rgba(80,180,220,0.35)";
           ctx.beginPath(); ctx.ellipse(p.x, p.y + 4, rad * 1.6, rad * 0.7, 0, 0, Math.PI * 2); ctx.fill();
         }
+        ctx.globalAlpha = 1;
       }
       ctx.fillStyle = cr.slowT > 0 ? "#3a6a7c" : "#1e1a24";
       ctx.beginPath(); ctx.ellipse(p.x, p.y, rad * 0.85, rad * 1.15, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = cr.slowT > 0 ? "#6ec7e0" : "#2c2733";
       ctx.beginPath(); ctx.ellipse(p.x, p.y - rad * 0.7, rad * 0.55, rad * 0.5, 0, 0, Math.PI * 2); ctx.fill();
-      const bw = Z(TW) * 0.28, bh = 3;
+      const bw = tp * 0.7, bh = 3;
       ctx.fillStyle = "rgba(0,0,0,0.5)";
-      ctx.fillRect(p.x - bw / 2, p.y - rad * 1.5, bw, bh);
+      ctx.fillRect(p.x - bw / 2, p.y - rad * 1.6, bw, bh);
       ctx.fillStyle = cr.hp / cr.maxHp > 0.4 ? "#7dcf6a" : "#d45a4a";
-      ctx.fillRect(p.x - bw / 2, p.y - rad * 1.5, bw * Math.max(0, cr.hp / cr.maxHp), bh);
+      ctx.fillRect(p.x - bw / 2, p.y - rad * 1.6, bw * Math.max(0, cr.hp / cr.maxHp), bh);
     }
 
     for (const f of state.floats) {
-      const p = iso(f.x, f.y, PH + 20);
+      const p = uvToScreen(f.u, f.v);
       ctx.globalAlpha = 1 - f.t / 0.7;
       ctx.fillStyle = "#e6c35c";
       ctx.font = "bold 13px sans-serif"; ctx.textAlign = "center";
@@ -604,9 +527,9 @@
     });
   });
   document.getElementById("restart").addEventListener("click", reset);
-  function ptrToTile(ev) {
+  function ptrToPad(ev) {
     const rect = canvas.getBoundingClientRect();
-    return tileAtCss(ev.clientX - rect.left, ev.clientY - rect.top);
+    return padAtCss(ev.clientX - rect.left, ev.clientY - rect.top);
   }
   const pointers = new Map();
   let drag = null, didOrbit = false, pinch0 = 0, pinchZ = 1;
@@ -619,7 +542,7 @@
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
     const p = pt(ev);
     pointers.set(ev.pointerId, p);
-    state.hover = tileAtCss(p.x, p.y);
+    state.hover = padAtCss(p.x, p.y);
     if (pointers.size === 1) {
       drag = { x: p.x, y: p.y, yaw: camYaw };
       didOrbit = false;
@@ -632,7 +555,7 @@
   });
   canvas.addEventListener("pointermove", ev => {
     if (!pointers.has(ev.pointerId) && pointers.size === 0) {
-      state.hover = ptrToTile(ev);
+      state.hover = ptrToPad(ev);
       return;
     }
     pointers.set(ev.pointerId, pt(ev));
@@ -648,15 +571,15 @@
       const dx = p.x - drag.x, dy = p.y - drag.y;
       if (Math.abs(dx) + Math.abs(dy) > 7) didOrbit = true;
       camYaw = drag.yaw + dx * 0.01;
-      state.hover = tileAtCss(p.x, p.y);
+      state.hover = padAtCss(p.x, p.y);
     }
   });
   canvas.addEventListener("pointerup", ev => {
-    const t = ptrToTile(ev);
+    const t = ptrToPad(ev);
     state.hover = t;
     pointers.delete(ev.pointerId);
     if (pointers.size === 0) {
-      if (!didOrbit && t) tryPlace(t.c, t.r);
+      if (!didOrbit && t) tryPlace(t);
       drag = null;
       didOrbit = false;
     }
