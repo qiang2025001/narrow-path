@@ -656,7 +656,7 @@
     pointers.set(ev.pointerId, p);
     state.hover = padAtCss(p.x, p.y);
     if (pointers.size === 1) {
-      drag = { x: p.x, y: p.y, yaw: camYaw };
+      drag = { x: p.x, y: p.y, yaw: camYaw, pad: padAtCss(p.x, p.y) };
       didOrbit = false;
     } else if (pointers.size === 2) {
       const a = [...pointers.values()];
@@ -681,8 +681,10 @@
     if (drag) {
       const p = pt(ev);
       const dx = p.x - drag.x, dy = p.y - drag.y;
-      if (Math.abs(dx) + Math.abs(dy) > 7) didOrbit = true;
-      camYaw = drag.yaw + dx * 0.022;
+      if (Math.hypot(dx, dy) > 5) {
+        didOrbit = true;
+        camYaw = drag.yaw + dx * 0.028;
+      }
       state.hover = padAtCss(p.x, p.y);
     }
   });
@@ -691,7 +693,9 @@
     state.hover = t;
     pointers.delete(ev.pointerId);
     if (pointers.size === 0) {
-      if (!didOrbit && t) {
+      const downPad = drag && drag.pad;
+      const samePad = !!(downPad && t && downPad.c === t.c && downPad.r === t.r);
+      if (!didOrbit && samePad) {
         if (state.occupied.has(key(t.c, t.r))) tryUpgrade(t);
         else tryPlace(t);
       }
