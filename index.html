@@ -202,20 +202,33 @@
     return { x: a[0] + (b[0] - a[0]) * f, y: a[1] + (b[1] - a[1]) * f };
   }
 
+  let camYaw = 0, camZoom = 1;
+  const ZMIN = 0.78, ZMAX = 2.2;
+  function clampZ(z) { return Math.max(ZMIN, Math.min(ZMAX, z)); }
+  function Z(n) { return n * camZoom; }
+  function rotGrid(c, r) {
+    const cx = (COLS - 1) * 0.5, cy = (ROWS - 1) * 0.5;
+    const dc = c - cx, dr = r - cy;
+    const cs = Math.cos(camYaw), sn = Math.sin(camYaw);
+    return { c: cx + dc * cs - dr * sn, r: cy + dc * sn + dr * cs };
+  }
+  function depth(c, r) { const g = rotGrid(c, r); return g.c + g.r; }
+
   function iso(c, r, h) {
+    const g = rotGrid(c, r);
     return {
-      x: originX + (c - r) * (TW / 2),
-      y: originY + (c + r) * (TH / 2) - (h || 0)
+      x: originX + (g.c - g.r) * (TW / 2) * camZoom,
+      y: originY + (g.c + g.r) * (TH / 2) * camZoom - (h || 0) * camZoom
     };
   }
 
   function diamond(c, r, h) {
     const p = iso(c, r, h);
     return [
-      { x: p.x, y: p.y - TH / 2 },
-      { x: p.x + TW / 2, y: p.y },
-      { x: p.x, y: p.y + TH / 2 },
-      { x: p.x - TW / 2, y: p.y }
+      { x: p.x, y: p.y - Z(TH) / 2 },
+      { x: p.x + Z(TW) / 2, y: p.y },
+      { x: p.x, y: p.y + Z(TH) / 2 },
+      { x: p.x - Z(TW) / 2, y: p.y }
     ];
   }
 
@@ -231,7 +244,7 @@
   function drawPrism(c, r, h, top, left, right) {
     const img = isPath(c, r) ? IMG.path : IMG.grass;
     const p = iso(c, r, 0);
-    if (blit(img, p.x, p.y + TH * 0.55, TW * 1.28, 0)) return;
+    if (blit(img, p.x, p.y + Z(TH) * 0.55, Z(TW) * 1.28, 0)) return;
     const topPts = diamond(c, r, h);
     const bot = diamond(c, r, 0);
     fillPoly([topPts[3], topPts[2], bot[2], bot[3]], left);
@@ -370,8 +383,8 @@
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         const p = iso(c, r, tileH(c, r));
-        const dx = (x - p.x) / (TW / 2);
-        const dy = (y - p.y) / (TH / 2);
+        const dx = (x - p.x) / (Z(TW) / 2);
+        const dy = (y - p.y) / (Z(TH) / 2);
         const d = Math.abs(dx) + Math.abs(dy);
         if (d <= 1.12 && d < bestD) { bestD = d; best = { c, r }; }
       }
@@ -413,7 +426,7 @@
   function drawTree(t) {
     const p = iso(t.c, t.r, GH);
     const img = t.round ? IMG.treeRound : IMG.treePine;
-    const w = TW * (t.round ? 0.95 : 0.72) * t.s;
+    const w = Z(TW) * (t.round ? 0.95 : 0.72) * t.s;
     if (blit(img, p.x, p.y + TH * 0.05, w, 0)) return;
     const s = TW * 0.22 * t.s;
     ctx.fillStyle = "#5a3a22";
@@ -422,7 +435,7 @@
 
   function drawPad(c, r) {
     const p = iso(c, r, GH);
-    if (blit(IMG.pad, p.x, p.y + TH * 0.2, TW * 0.95, 0)) return;
+    if (blit(IMG.pad, p.x, p.y + Z(TH) * 0.2, Z(TW) * 0.95, 0)) return;
     ctx.fillStyle = "#8a8680";
     ctx.beginPath(); ctx.ellipse(p.x, p.y, TW * 0.22, TH * 0.22, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "#c5c2bb";
@@ -434,7 +447,7 @@
     ctx.save();
     if (ghost) ctx.globalAlpha = 0.55;
     const timg = type === "ice" ? IMG.ice : type === "cannon" ? IMG.cannon : IMG.arrow;
-    if (blit(timg, base.x, base.y + TH * 0.05, TW * (type === "cannon" ? 0.92 : 0.82), 0)) {
+    if (blit(timg, base.x, base.y + Z(TH) * 0.05, Z(TW) * (type === "cannon" ? 0.92 : 0.82), 0)) {
       ctx.restore();
       return;
     }
@@ -472,7 +485,7 @@
 
     const cells = [];
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) cells.push({ c, r, z: c + r });
-    cells.sort((a, b) => a.z - b.z);
+    cells.sort((a, b) => depth(a.c, a.r) - depth(b.c, b.r));
 
     for (const cell of cells) {
       const { c, r } = cell;
@@ -485,7 +498,7 @@
       }
     }
 
-    TREES.sort((a, b) => (a.c + a.r) - (b.c + b.r));
+    TREES.sort((a, b) => depth(a.c, a.r) - depth(b.c, b.r));
     for (const t of TREES) drawTree(t);
 
     const s0 = iso(PATH[0][0], PATH[0][1], PH);
@@ -499,14 +512,14 @@
       const valid = inGrid(c, r) && !isPath(c, r) && !state.occupied.has(key(c, r));
       const p = iso(c, r, GH + 2);
       ctx.beginPath();
-      ctx.ellipse(p.x, p.y, TOWER_DEF[state.selected].range * TW * 0.42,
-                  TOWER_DEF[state.selected].range * TH * 0.42, 0, 0, Math.PI * 2);
+      ctx.ellipse(p.x, p.y, TOWER_DEF[state.selected].range * Z(TW) * 0.42,
+                  TOWER_DEF[state.selected].range * Z(TH) * 0.42, 0, 0, Math.PI * 2);
       ctx.strokeStyle = valid ? "rgba(230,195,92,0.8)" : "rgba(200,80,70,0.6)";
       ctx.lineWidth = 2; ctx.stroke();
       if (valid) drawHouse(c, r, state.selected, true);
     }
 
-    const towersSorted = state.towers.slice().sort((a, b) => (a.c + a.r) - (b.c + b.r));
+    const towersSorted = state.towers.slice().sort((a, b) => depth(a.c, a.r) - depth(b.c, b.r));
     for (const tw of towersSorted) drawHouse(tw.c, tw.r, tw.type, false);
 
     for (const f of state.fx) {
@@ -520,7 +533,7 @@
       } else if (f.kind === "splash") {
         const p = iso(f.x, f.y, PH + 4);
         ctx.globalAlpha = a;
-        if (!blit(IMG.splash, p.x, p.y + TH * 0.2, TW * (0.7 + f.t * 1.1), 0)) {
+        if (!blit(IMG.splash, p.x, p.y + Z(TH) * 0.2, Z(TW) * (0.7 + f.t * 1.1), 0)) {
           const rad = TW * (0.18 + f.t * 1.4);
           ctx.beginPath(); ctx.ellipse(p.x, p.y, rad, rad * 0.5, 0, 0, Math.PI * 2);
           ctx.strokeStyle = `rgba(255,120,30,${a * 0.9})`; ctx.lineWidth = 3; ctx.stroke();
@@ -530,7 +543,7 @@
       } else if (f.kind === "place") {
         const p = iso(f.x, f.y, GH + 3);
         ctx.globalAlpha = a;
-        if (!blit(IMG.place, p.x, p.y + TH * 0.15, TW * (0.7 + f.t * 0.6), 0)) {
+        if (!blit(IMG.place, p.x, p.y + Z(TH) * 0.15, Z(TW) * (0.7 + f.t * 0.6), 0)) {
           const rad = TW * (0.12 + f.t * 0.55);
           ctx.beginPath(); ctx.ellipse(p.x, p.y, rad, rad * 0.5, 0, 0, Math.PI * 2);
           ctx.strokeStyle = `rgba(255,210,70,${a})`; ctx.lineWidth = 3; ctx.stroke();
@@ -541,15 +554,15 @@
 
     const creepsSorted = state.creeps.slice().sort((a, b) => {
       const pa = creepPos(a), pb = creepPos(b);
-      return (pa.x + pa.y) - (pb.x + pb.y);
+      return depth(pa.x, pa.y) - depth(pb.x, pb.y);
     });
     for (const cr of creepsSorted) {
       const tp = creepPos(cr);
       const p = iso(tp.x, tp.y, PH + 8);
-      const rad = TW * (cr.big ? 0.16 : 0.12);
+      const rad = Z(TW) * (cr.big ? 0.16 : 0.12);
       ctx.fillStyle = cr.slowT > 0 ? "rgba(80,180,220,0.35)" : "transparent";
       if (cr.slowT > 0) {
-        if (!blit(IMG.slow, p.x, p.y + rad * 0.6, TW * 0.55, 0)) {
+        if (!blit(IMG.slow, p.x, p.y + rad * 0.6, Z(TW) * 0.55, 0)) {
           ctx.beginPath(); ctx.ellipse(p.x, p.y + 4, rad * 1.6, rad * 0.7, 0, 0, Math.PI * 2); ctx.fill();
         }
       }
@@ -557,7 +570,7 @@
       ctx.beginPath(); ctx.ellipse(p.x, p.y, rad * 0.85, rad * 1.15, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = cr.slowT > 0 ? "#6ec7e0" : "#2c2733";
       ctx.beginPath(); ctx.ellipse(p.x, p.y - rad * 0.7, rad * 0.55, rad * 0.5, 0, 0, Math.PI * 2); ctx.fill();
-      const bw = TW * 0.28, bh = 3;
+      const bw = Z(TW) * 0.28, bh = 3;
       ctx.fillStyle = "rgba(0,0,0,0.5)";
       ctx.fillRect(p.x - bw / 2, p.y - rad * 1.5, bw, bh);
       ctx.fillStyle = cr.hp / cr.maxHp > 0.4 ? "#7dcf6a" : "#d45a4a";
@@ -595,18 +608,65 @@
     const rect = canvas.getBoundingClientRect();
     return tileAtCss(ev.clientX - rect.left, ev.clientY - rect.top);
   }
-  canvas.addEventListener("pointermove", ev => { state.hover = ptrToTile(ev); });
+  const pointers = new Map();
+  let drag = null, didOrbit = false, pinch0 = 0, pinchZ = 1;
+  function pt(ev) {
+    const rect = canvas.getBoundingClientRect();
+    return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+  }
   canvas.addEventListener("pointerdown", ev => {
     ev.preventDefault();
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
-    state.hover = ptrToTile(ev);
+    const p = pt(ev);
+    pointers.set(ev.pointerId, p);
+    state.hover = tileAtCss(p.x, p.y);
+    if (pointers.size === 1) {
+      drag = { x: p.x, y: p.y, yaw: camYaw };
+      didOrbit = false;
+    } else if (pointers.size === 2) {
+      const a = [...pointers.values()];
+      pinch0 = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) || 1;
+      pinchZ = camZoom;
+      drag = null;
+    }
+  });
+  canvas.addEventListener("pointermove", ev => {
+    if (!pointers.has(ev.pointerId) && pointers.size === 0) {
+      state.hover = ptrToTile(ev);
+      return;
+    }
+    pointers.set(ev.pointerId, pt(ev));
+    if (pointers.size >= 2) {
+      const a = [...pointers.values()];
+      const d = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) || 1;
+      camZoom = clampZ(pinchZ * (d / pinch0));
+      didOrbit = true;
+      return;
+    }
+    if (drag) {
+      const p = pt(ev);
+      const dx = p.x - drag.x, dy = p.y - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 7) didOrbit = true;
+      camYaw = drag.yaw + dx * 0.01;
+      state.hover = tileAtCss(p.x, p.y);
+    }
   });
   canvas.addEventListener("pointerup", ev => {
     const t = ptrToTile(ev);
     state.hover = t;
-    if (t) tryPlace(t.c, t.r);
+    pointers.delete(ev.pointerId);
+    if (pointers.size === 0) {
+      if (!didOrbit && t) tryPlace(t.c, t.r);
+      drag = null;
+      didOrbit = false;
+    }
   });
-  canvas.addEventListener("pointerleave", () => { state.hover = null; });
+  canvas.addEventListener("pointercancel", ev => { pointers.delete(ev.pointerId); drag = null; });
+  canvas.addEventListener("pointerleave", () => { if (pointers.size === 0) state.hover = null; });
+  canvas.addEventListener("wheel", ev => {
+    ev.preventDefault();
+    camZoom = clampZ(camZoom * (ev.deltaY > 0 ? 0.9 : 1.12));
+  }, { passive: false });
   canvas.addEventListener("contextmenu", ev => ev.preventDefault());
   window.addEventListener("resize", resize);
   new ResizeObserver(resize).observe(stage);
