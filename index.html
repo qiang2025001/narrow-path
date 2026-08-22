@@ -273,7 +273,7 @@
   }
   function padAtCss(x, y) {
     let best = null, bestD = 1e9;
-    const lim = tilePx() * 1.15;
+    const lim = tilePx() * 1.5;
     for (const p of PADS) {
       const s = uvToScreen(p.u, p.v);
       const d = Math.hypot(x - s.x, y - s.y);
@@ -445,7 +445,11 @@
   function tryPlace(pad) {
     if (!pad || state.phase === "win" || state.phase === "lose") return;
     if (state.occupied.has(key(pad.c, pad.r))) { tryUpgrade(pad); return; }
-    if (!state.selected) return;
+    if (!state.selected) {
+      const pick = ["arrow", "ice", "cannon"].find(k => state.gold >= TOWER_DEF[k].cost);
+      if (!pick) return;
+      state.selected = pick;
+    }
     const def = TOWER_DEF[state.selected];
     if (state.gold < def.cost) return;
     state.gold -= def.cost;
@@ -681,7 +685,7 @@
     if (drag) {
       const p = pt(ev);
       const dx = p.x - drag.x, dy = p.y - drag.y;
-      if (Math.hypot(dx, dy) > 5) {
+      if (Math.hypot(dx, dy) > 18) {
         didOrbit = true;
         camYaw = drag.yaw + dx * 0.028;
       }
@@ -694,10 +698,13 @@
     pointers.delete(ev.pointerId);
     if (pointers.size === 0) {
       const downPad = drag && drag.pad;
-      const samePad = !!(downPad && t && downPad.c === t.c && downPad.r === t.r);
-      if (!didOrbit && samePad) {
-        if (state.occupied.has(key(t.c, t.r))) tryUpgrade(t);
-        else tryPlace(t);
+      const p = pt(ev);
+      const travel = drag ? Math.hypot(p.x - drag.x, p.y - drag.y) : 99;
+      const tap = !didOrbit && travel <= 18;
+      const pad = tap ? (downPad || t) : null;
+      if (tap && pad) {
+        if (state.occupied.has(key(pad.c, pad.r))) tryUpgrade(pad);
+        else tryPlace(pad);
       }
       drag = null;
       didOrbit = false;
