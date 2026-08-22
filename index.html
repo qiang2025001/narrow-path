@@ -134,7 +134,9 @@
     place: "assets/fx-place.png",
     splash: "assets/fx-splash.png",
     slow: "assets/fx-ice.png",
-    bolt: "assets/fx-bolt.png"
+    bolt: "assets/fx-bolt.png",
+    treeRound: "assets/tree-round.png",
+    treePine: "assets/tree-pine.png"
   };
   function loadImages(done) {
     const keys = Object.keys(IMG_SRC);
@@ -409,29 +411,13 @@
   }
 
   function drawTree(t) {
-    const p = iso(t.c, t.r, GH + 2);
+    const p = iso(t.c, t.r, GH);
+    const img = t.round ? IMG.treeRound : IMG.treePine;
+    const w = TW * (t.round ? 0.95 : 0.72) * t.s;
+    if (blit(img, p.x, p.y + TH * 0.05, w, 0)) return;
     const s = TW * 0.22 * t.s;
     ctx.fillStyle = "#5a3a22";
     ctx.fillRect(p.x - s * 0.12, p.y - s * 0.15, s * 0.24, s * 0.55);
-    if (t.round) {
-      ctx.fillStyle = "#2f6b32";
-      ctx.beginPath(); ctx.ellipse(p.x, p.y - s * 0.55, s * 0.7, s * 0.55, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "#3d8a38";
-      ctx.beginPath(); ctx.ellipse(p.x + s * 0.18, p.y - s * 0.42, s * 0.42, s * 0.34, 0, 0, Math.PI * 2); ctx.fill();
-    } else {
-      ctx.fillStyle = "#245828";
-      ctx.beginPath();
-      ctx.moveTo(p.x, p.y - s * 1.35);
-      ctx.lineTo(p.x + s * 0.55, p.y - s * 0.15);
-      ctx.lineTo(p.x - s * 0.55, p.y - s * 0.15);
-      ctx.closePath(); ctx.fill();
-      ctx.fillStyle = "#2f6b32";
-      ctx.beginPath();
-      ctx.moveTo(p.x, p.y - s * 1.55);
-      ctx.lineTo(p.x + s * 0.34, p.y - s * 0.7);
-      ctx.lineTo(p.x - s * 0.34, p.y - s * 0.7);
-      ctx.closePath(); ctx.fill();
-    }
   }
 
   function drawPad(c, r) {
