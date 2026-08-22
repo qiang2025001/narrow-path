@@ -33,7 +33,8 @@
   .stat .k { font-size: 10px; color: #dce6d0; opacity: 0.8; }
   .stat .v { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .stat.gold .v { color: #e6c35c; }
-  .stat.life .v { color: #e07070; }
+  .stat.life .v { color: #e07070; display: inline-block; transform-origin: center; transition: transform 0.08s; }
+  .stat.life.jump .v { transform: scale(1.4); }
   #stage { flex: 1 1 auto; min-height: 0; position: relative; }
   canvas { display: block; touch-action: none; width: 100%; height: 100%; }
   footer {
@@ -128,6 +129,23 @@
     ice:    { name: "冰", cost: 70,  dmg: 3,  rate: 0.8, range: 2.0, splash: 0, slow: 0.4 },
     cannon: { name: "炮", cost: 120, dmg: 22, rate: 0.45,range: 2.0, splash: 1, slow: 0 }
   };
+  const TOWER_UP = {
+    arrow:  { cost: 75,  dmg: 12, slow: 0 },
+    ice:    { cost: 105, dmg: 5,  slow: 0.5 },
+    cannon: { cost: 180, dmg: 33, slow: 0 }
+  };
+  function towerStats(tw) {
+    const def = TOWER_DEF[tw.type], up = TOWER_UP[tw.type];
+    const lv = tw.level >= 1;
+    return {
+      dmg: lv ? up.dmg : def.dmg,
+      slow: lv ? up.slow : def.slow,
+      range: def.range, splash: def.splash, rate: def.rate
+    };
+  }
+  function towerAt(c, r) {
+    return state.towers.find(tw => tw.c === c && tw.r === r) || null;
+  }
   const WAVES = [
     { count: 6,  hp: 10, gold: 8,  interval: 1.2 },
     { count: 8,  hp: 14, gold: 8,  interval: 1.1 },
@@ -249,7 +267,14 @@
 
   function spawnCreep() {
     const w = WAVES[state.wave];
-    state.creeps.push({ progress: 0, hp: w.hp, maxHp: w.hp, slowT: 0, gold: w.gold, big: state.wave === 9 });
+    const fastN = state.wave >= 3 ? Math.floor(w.count / 3) : 0;
+    const fast = state.spawned >= (w.count - fastN);
+    const hp = fast ? Math.round(w.hp * 0.55) : w.hp;
+    state.creeps.push({
+      progress: 0, hp: hp, maxHp: hp, slowT: 0, slowAmt: 0,
+      gold: w.gold, fast: fast, speed: fast ? 1.5 : 1,
+      big: !fast && state.wave === 9
+    });
   }
   function killCreep(cr, idx) {
     state.gold += cr.gold;
@@ -261,7 +286,7 @@
     state.creeps.splice(idx, 1);
     if (state.phase === "win" || state.phase === "lose") return;
     state.lives -= 1;
-    state.leakFlash = 0.35;
+    state.leakFlash = 0.45;
     if (state.lives <= 0) { state.lives = 0; lose(); }
   }
   function endWaveCheck() {
@@ -286,7 +311,7 @@
   function dist(ax, ay, bx, by) { return Math.hypot(ax - bx, ay - by); }
 
   function fireTower(tw, dt) {
-    const def = TOWER_DEF[tw.type];
+    const def = towerStats(tw);
     tw.cd -= dt;
     if (tw.cd > 0) return;
     let best = null, bestProg = -1;
@@ -316,7 +341,10 @@
     } else targets.push(best);
     for (const cr of targets) {
       cr.hp -= def.dmg;
-      if (def.slow > 0) cr.slowT = 1.5;
+      if (def.slow > 0) {
+        cr.slowT = 1.5;
+        cr.slowAmt = Math.max(cr.slowAmt || 0, def.slow);
+      }
     }
     for (let i = state.creeps.length - 1; i >= 0; i--) {
       if (state.creeps[i].hp <= 0) killCreep(state.creeps[i], i);
@@ -346,7 +374,9 @@
       }
       for (const cr of state.creeps) {
         cr.slowT = Math.max(0, cr.slowT - dt);
-        cr.progress += (cr.slowT > 0 ? 0.6 : 1) * dt;
+        if (cr.slowT <= 0) cr.slowAmt = 0;
+        const slowMul = cr.slowT > 0 ? (1 - (cr.slowAmt || 0.4)) : 1;
+        cr.progress += cr.speed * slowMul * dt;
       }
       for (let i = state.creeps.length - 1; i >= 0; i--) {
         if (state.creeps[i].progress >= PATH_LEN - 1) leakCreep(i);
@@ -368,7 +398,9 @@
     if (state.phase === "countdown") next.textContent = state.countdown.toFixed(1);
     else if (state.phase === "combat") next.textContent = "战斗中";
     else next.textContent = state.phase === "win" ? "完成" : "—";
-    document.querySelector(".stat.life").style.background = state.leakFlash > 0 ? "rgba(90,30,24,0.7)" : "";
+    const lifeEl = document.querySelector(".stat.life");
+    lifeEl.style.background = state.leakFlash > 0 ? "rgba(90,30,24,0.7)" : "";
+    lifeEl.classList.toggle("jump", state.leakFlash > 0.15);
     for (const type of ["arrow", "ice", "cannon"]) {
       const el = document.getElementById("card-" + type);
       const aff = state.gold >= TOWER_DEF[type].cost && state.phase !== "win" && state.phase !== "lose";
@@ -377,14 +409,27 @@
     }
   }
 
+  function tryUpgrade(pad) {
+    if (!pad || state.phase === "win" || state.phase === "lose") return false;
+    const tw = towerAt(pad.c, pad.r);
+    if (!tw || tw.level >= 1) return false;
+    const up = TOWER_UP[tw.type];
+    if (state.gold < up.cost) return false;
+    state.gold -= up.cost;
+    tw.level = 1;
+    state.fx.push({ kind: "place", u: pad.u, v: pad.v, t: 0, life: 0.4 });
+    state.floats.push({ u: pad.u, v: pad.v, t: 0, text: "升级" });
+    hud();
+    return true;
+  }
   function tryPlace(pad) {
     if (!pad || state.phase === "win" || state.phase === "lose") return;
+    if (state.occupied.has(key(pad.c, pad.r))) { tryUpgrade(pad); return; }
     if (!state.selected) return;
-    if (state.occupied.has(key(pad.c, pad.r))) return;
     const def = TOWER_DEF[state.selected];
     if (state.gold < def.cost) return;
     state.gold -= def.cost;
-    state.towers.push({ c: pad.c, r: pad.r, u: pad.u, v: pad.v, type: state.selected, cd: 0 });
+    state.towers.push({ c: pad.c, r: pad.r, u: pad.u, v: pad.v, type: state.selected, cd: 0, level: 0 });
     state.occupied.add(key(pad.c, pad.r));
     state.fx.push({ kind: "place", u: pad.u, v: pad.v, t: 0, life: 0.4 });
     hud();
@@ -400,13 +445,17 @@
     canvas.style.height = cssH + "px";
   }
 
-  function drawHouse(u, v, type, ghost) {
+  function drawHouse(u, v, type, ghost, level) {
     const p = uvToScreen(u, v);
-    const w = tilePx() * 2.15;
+    const w = tilePx() * 2.15 * (level >= 1 ? 1.12 : 1);
     ctx.save();
     if (ghost) ctx.globalAlpha = 0.55;
     const timg = type === "ice" ? IMG.ice : type === "cannon" ? IMG.cannon : IMG.arrow;
     blit(timg, p.x, p.y + 4, w * (type === "cannon" ? 1.05 : 0.95), 0);
+    if (level >= 1) {
+      ctx.fillStyle = "#e6c35c";
+      ctx.beginPath(); ctx.arc(p.x + w * 0.28, p.y - w * 0.72, 5, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -462,11 +511,22 @@
                   TOWER_DEF[state.selected].range * tp * 0.55, 0, 0, Math.PI * 2);
       ctx.strokeStyle = valid ? "rgba(230,195,92,0.85)" : "rgba(200,80,70,0.6)";
       ctx.lineWidth = 2; ctx.stroke();
-      if (valid) drawHouse(p.u, p.v, state.selected, true);
+      if (valid) drawHouse(p.u, p.v, state.selected, true, 0);
+    }
+
+    if (state.hover) {
+      const tw = towerAt(state.hover.c, state.hover.r);
+      if (tw && tw.level < 1) {
+        const up = TOWER_UP[tw.type];
+        const s = uvToScreen(tw.u, tw.v);
+        ctx.fillStyle = state.gold >= up.cost ? "rgba(230,195,92,0.95)" : "rgba(200,80,70,0.9)";
+        ctx.font = "700 12px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText("升级 " + up.cost, s.x, s.y - tp * 1.6);
+      }
     }
 
     const towersSorted = state.towers.slice().sort((a, b) => a.v - b.v);
-    for (const tw of towersSorted) drawHouse(tw.u, tw.v, tw.type, false);
+    for (const tw of towersSorted) drawHouse(tw.u, tw.v, tw.type, false, tw.level);
 
     for (const f of state.fx) {
       const a = 1 - f.t / f.life;
@@ -499,7 +559,7 @@
     for (const cr of creepsSorted) {
       const uv = pathUV(cr.progress);
       const p = uvToScreen(uv.u, uv.v);
-      const rad = tp * (cr.big ? 0.38 : 0.28);
+      const rad = tp * (cr.fast ? 0.21 : (cr.big ? 0.38 : 0.28));
       if (cr.slowT > 0) {
         ctx.globalAlpha = 0.85;
         if (!blit(IMG.slow, p.x, p.y + rad * 0.4, tp * 1.05, 0)) {
@@ -529,11 +589,13 @@
     }
 
     if (state.phase === "countdown") {
-      ctx.fillStyle = "rgba(20,28,14,0.4)";
-      ctx.fillRect(cssW / 2 - 50, 12, 100, 36);
+      ctx.fillStyle = "rgba(20,28,14,0.5)";
+      ctx.fillRect(cssW / 2 - 72, 8, 144, 52);
       ctx.fillStyle = "#f0d48a";
-      ctx.font = "800 22px sans-serif"; ctx.textAlign = "center";
-      ctx.fillText(Math.ceil(state.countdown) + " 秒", cssW / 2, 36);
+      ctx.font = "800 20px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText("第 " + (state.wave + 1) + " 波", cssW / 2, 28);
+      ctx.font = "700 14px sans-serif";
+      ctx.fillText(Math.ceil(state.countdown) + " 秒", cssW / 2, 50);
     }
   }
 
@@ -598,7 +660,10 @@
     state.hover = t;
     pointers.delete(ev.pointerId);
     if (pointers.size === 0) {
-      if (!didOrbit && t) tryPlace(t);
+      if (!didOrbit && t) {
+        if (state.occupied.has(key(t.c, t.r))) tryUpgrade(t);
+        else tryPlace(t);
+      }
       drag = null;
       didOrbit = false;
     }
