@@ -147,7 +147,7 @@
     return state.towers.find(tw => tw.c === c && tw.r === r) || null;
   }
   const WAVES = [
-    { count: 6,  hp: 10, gold: 8,  interval: 1.2 },
+    { count: 5,  hp: 8,  gold: 8,  interval: 1.5 },
     { count: 8,  hp: 14, gold: 8,  interval: 1.1 },
     { count: 8,  hp: 20, gold: 9,  interval: 1.0 },
     { count: 10, hp: 26, gold: 9,  interval: 1.0 },
@@ -272,7 +272,7 @@
     const hp = fast ? Math.round(w.hp * 0.55) : w.hp;
     state.creeps.push({
       progress: 0, hp: hp, maxHp: hp, slowT: 0, slowAmt: 0,
-      gold: w.gold, fast: fast, speed: fast ? 1.5 : 1,
+      gold: w.gold, fast: fast, speed: fast ? 1.5 : 1, step: 0,
       big: !fast && state.wave === 9
     });
   }
@@ -333,7 +333,7 @@
     const g = creepGrid(best);
     const targets = [];
     if (def.splash > 0) {
-      state.fx.push({ kind: "splash", u: tp.u, v: tp.v, t: 0, life: 0.28 });
+      state.fx.push({ kind: "splash", u: tp.u, v: tp.v, t: 0, life: 0.5 });
       for (const cr of state.creeps) {
         const p = creepGrid(cr);
         if (dist(p.x, p.y, g.x, g.y) <= def.splash + 1e-6) targets.push(cr);
@@ -344,6 +344,8 @@
       if (def.slow > 0) {
         cr.slowT = 1.5;
         cr.slowAmt = Math.max(cr.slowAmt || 0, def.slow);
+        const uv = pathUV(cr.progress);
+        state.floats.push({ u: uv.u, v: uv.v, t: 0, text: "慢", ice: true });
       }
     }
     for (let i = state.creeps.length - 1; i >= 0; i--) {
@@ -377,6 +379,7 @@
         if (cr.slowT <= 0) cr.slowAmt = 0;
         const slowMul = cr.slowT > 0 ? (1 - (cr.slowAmt || 0.4)) : 1;
         cr.progress += cr.speed * slowMul * dt;
+        cr.step = (cr.step || 0) + cr.speed * slowMul * dt;
       }
       for (let i = state.creeps.length - 1; i >= 0; i--) {
         if (state.creeps[i].progress >= PATH_LEN - 1) leakCreep(i);
@@ -538,12 +541,13 @@
         ctx.beginPath(); ctx.moveTo(p0.x, p0.y - tp * 0.8); ctx.lineTo(p1.x, p1.y); ctx.stroke();
       } else if (f.kind === "splash") {
         const p = uvToScreen(f.u, f.v);
-        ctx.globalAlpha = a;
-        if (!blit(IMG.splash, p.x, p.y + 4, tp * (1.4 + f.t * 2.2), 0)) {
-          ctx.beginPath(); ctx.ellipse(p.x, p.y, tp * (0.4 + f.t * 2), tp * (0.22 + f.t), 0, 0, Math.PI * 2);
-          ctx.strokeStyle = `rgba(255,120,30,${a * 0.9})`; ctx.lineWidth = 3; ctx.stroke();
-        }
+        ctx.globalAlpha = a * 0.75;
+        blit(IMG.splash, p.x, p.y + 4, tp * (1.6 + f.t * 2.4), 0);
         ctx.globalAlpha = 1;
+        const rad = tp * (0.7 + f.t * 2.6);
+        ctx.beginPath(); ctx.ellipse(p.x, p.y, rad, rad * 0.55, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255,140,40,${a})`; ctx.lineWidth = 4; ctx.stroke();
+        ctx.fillStyle = `rgba(255,120,30,${a * 0.18})`; ctx.fill();
       } else if (f.kind === "place") {
         const p = uvToScreen(f.u, f.v);
         ctx.globalAlpha = a;
@@ -558,15 +562,18 @@
     const creepsSorted = state.creeps.slice().sort((a, b) => pathUV(a.progress).v - pathUV(b.progress).v);
     for (const cr of creepsSorted) {
       const uv = pathUV(cr.progress);
+      const bob = Math.sin((cr.step || 0) * 14) * (cr.slowT > 0 ? 1.2 : 2.4);
       const p = uvToScreen(uv.u, uv.v);
+      p.y -= bob;
       const rad = tp * (cr.fast ? 0.21 : (cr.big ? 0.38 : 0.28));
       if (cr.slowT > 0) {
-        ctx.globalAlpha = 0.85;
-        if (!blit(IMG.slow, p.x, p.y + rad * 0.4, tp * 1.05, 0)) {
-          ctx.fillStyle = "rgba(80,180,220,0.35)";
-          ctx.beginPath(); ctx.ellipse(p.x, p.y + 4, rad * 1.6, rad * 0.7, 0, 0, Math.PI * 2); ctx.fill();
-        }
+        ctx.globalAlpha = 0.7;
+        blit(IMG.slow, p.x, p.y + rad * 0.5, tp * 1.25, 0);
         ctx.globalAlpha = 1;
+        ctx.fillStyle = "rgba(90,200,230,0.4)";
+        ctx.beginPath(); ctx.ellipse(p.x, p.y + 6, rad * 1.9, rad * 0.85, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = "rgba(160,230,250,0.9)"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(p.x, p.y + 6, rad * 1.9, rad * 0.85, 0, 0, Math.PI * 2); ctx.stroke();
       }
       ctx.fillStyle = cr.slowT > 0 ? "#3a6a7c" : "#1e1a24";
       ctx.beginPath(); ctx.ellipse(p.x, p.y, rad * 0.85, rad * 1.15, 0, 0, Math.PI * 2); ctx.fill();
@@ -582,7 +589,7 @@
     for (const f of state.floats) {
       const p = uvToScreen(f.u, f.v);
       ctx.globalAlpha = 1 - f.t / 0.7;
-      ctx.fillStyle = "#e6c35c";
+      ctx.fillStyle = f.ice ? "#7fe3f2" : "#e6c35c";
       ctx.font = "bold 13px sans-serif"; ctx.textAlign = "center";
       ctx.fillText(f.text, p.x, p.y - f.t * 28);
       ctx.globalAlpha = 1;
