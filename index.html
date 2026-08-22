@@ -123,6 +123,35 @@
   const ctx = canvas.getContext("2d");
   const stage = document.getElementById("stage");
   const overlay = document.getElementById("overlay");
+  const IMG = {};
+  const IMG_SRC = {
+    grass: "assets/tile-grass.png",
+    path: "assets/tile-path.png",
+    pad: "assets/tile-pad.png",
+    arrow: "assets/tower-arrow.png",
+    ice: "assets/tower-ice.png",
+    cannon: "assets/tower-cannon.png",
+    place: "assets/fx-place.png",
+    splash: "assets/fx-splash.png",
+    slow: "assets/fx-ice.png",
+    bolt: "assets/fx-bolt.png"
+  };
+  function loadImages(done) {
+    const keys = Object.keys(IMG_SRC);
+    let n = 0;
+    keys.forEach(k => {
+      const im = new Image();
+      im.onload = im.onerror = () => { n++; if (n >= keys.length) done(); };
+      im.src = IMG_SRC[k];
+      IMG[k] = im;
+    });
+  }
+  function blit(img, x, y, w, foot) {
+    if (!img || !img.naturalWidth) return false;
+    const h = w * (img.naturalHeight / img.naturalWidth);
+    ctx.drawImage(img, x - w / 2, y - h + (foot || 0), w, h);
+    return true;
+  }
 
   let dpr = 1, cssW = 0, cssH = 0, TW = 52, TH = 26, originX = 0, originY = 0;
   const GH = 16, PH = 5; // grass / path extrusion
@@ -198,6 +227,9 @@
   }
 
   function drawPrism(c, r, h, top, left, right) {
+    const img = isPath(c, r) ? IMG.path : IMG.grass;
+    const p = iso(c, r, 0);
+    if (blit(img, p.x, p.y + TH * 0.55, TW * 1.28, 0)) return;
     const topPts = diamond(c, r, h);
     const bot = diamond(c, r, 0);
     fillPoly([topPts[3], topPts[2], bot[2], bot[3]], left);
@@ -403,7 +435,8 @@
   }
 
   function drawPad(c, r) {
-    const p = iso(c, r, GH + 2);
+    const p = iso(c, r, GH);
+    if (blit(IMG.pad, p.x, p.y + TH * 0.2, TW * 0.95, 0)) return;
     ctx.fillStyle = "#8a8680";
     ctx.beginPath(); ctx.ellipse(p.x, p.y, TW * 0.22, TH * 0.22, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "#c5c2bb";
@@ -414,6 +447,11 @@
     const base = iso(c, r, GH + 2);
     ctx.save();
     if (ghost) ctx.globalAlpha = 0.55;
+    const timg = type === "ice" ? IMG.ice : type === "cannon" ? IMG.cannon : IMG.arrow;
+    if (blit(timg, base.x, base.y + TH * 0.05, TW * (type === "cannon" ? 0.92 : 0.82), 0)) {
+      ctx.restore();
+      return;
+    }
     const w = TW * 0.28, d = TH * 0.28, h = type === "cannon" ? 18 : type === "ice" ? 22 : 24;
     const x = base.x, y = base.y - 2;
     const wall = type === "arrow" ? "#7a5530" : type === "ice" ? "#7aa7c2" : "#5a5854";
@@ -495,15 +533,23 @@
         ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
       } else if (f.kind === "splash") {
         const p = iso(f.x, f.y, PH + 4);
-        const rad = TW * (0.18 + f.t * 1.4);
-        ctx.beginPath(); ctx.ellipse(p.x, p.y, rad, rad * 0.5, 0, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(255,120,30,${a * 0.9})`; ctx.lineWidth = 3; ctx.stroke();
-        ctx.fillStyle = `rgba(230,90,20,${a * 0.18})`; ctx.fill();
+        ctx.globalAlpha = a;
+        if (!blit(IMG.splash, p.x, p.y + TH * 0.2, TW * (0.7 + f.t * 1.1), 0)) {
+          const rad = TW * (0.18 + f.t * 1.4);
+          ctx.beginPath(); ctx.ellipse(p.x, p.y, rad, rad * 0.5, 0, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(255,120,30,${a * 0.9})`; ctx.lineWidth = 3; ctx.stroke();
+          ctx.fillStyle = `rgba(230,90,20,${a * 0.18})`; ctx.fill();
+        }
+        ctx.globalAlpha = 1;
       } else if (f.kind === "place") {
         const p = iso(f.x, f.y, GH + 3);
-        const rad = TW * (0.12 + f.t * 0.55);
-        ctx.beginPath(); ctx.ellipse(p.x, p.y, rad, rad * 0.5, 0, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(255,210,70,${a})`; ctx.lineWidth = 3; ctx.stroke();
+        ctx.globalAlpha = a;
+        if (!blit(IMG.place, p.x, p.y + TH * 0.15, TW * (0.7 + f.t * 0.6), 0)) {
+          const rad = TW * (0.12 + f.t * 0.55);
+          ctx.beginPath(); ctx.ellipse(p.x, p.y, rad, rad * 0.5, 0, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(255,210,70,${a})`; ctx.lineWidth = 3; ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
       }
     }
 
@@ -517,7 +563,9 @@
       const rad = TW * (cr.big ? 0.16 : 0.12);
       ctx.fillStyle = cr.slowT > 0 ? "rgba(80,180,220,0.35)" : "transparent";
       if (cr.slowT > 0) {
-        ctx.beginPath(); ctx.ellipse(p.x, p.y + 4, rad * 1.6, rad * 0.7, 0, 0, Math.PI * 2); ctx.fill();
+        if (!blit(IMG.slow, p.x, p.y + rad * 0.6, TW * 0.55, 0)) {
+          ctx.beginPath(); ctx.ellipse(p.x, p.y + 4, rad * 1.6, rad * 0.7, 0, 0, Math.PI * 2); ctx.fill();
+        }
       }
       ctx.fillStyle = cr.slowT > 0 ? "#3a6a7c" : "#1e1a24";
       ctx.beginPath(); ctx.ellipse(p.x, p.y, rad * 0.85, rad * 1.15, 0, 0, Math.PI * 2); ctx.fill();
@@ -581,7 +629,7 @@
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now; update(dt); hud(); draw(); requestAnimationFrame(loop);
   }
-  resize(); reset(); requestAnimationFrame(loop);
+  loadImages(() => { resize(); reset(); requestAnimationFrame(loop); });
 })();
 </script>
 </body>
